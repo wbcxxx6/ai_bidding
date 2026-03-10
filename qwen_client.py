@@ -8,7 +8,7 @@ from werkzeug.utils import secure_filename
 import logging
 
 # 通义千问API配置
-DASHSCOPE_API_KEY = os.getenv('DASHSCOPE_API_KEY','sk-44e5b418942b4436adf722d513997405')
+DASHSCOPE_API_KEY = os.getenv('DASHSCOPE_API_KEY')
 DASHSCOPE_MODEL = os.getenv('DASHSCOPE_MODEL', 'qwen-turbo-latest')
 AI_PROVIDER = os.getenv('AI_PROVIDER', 'dashscope')
 
