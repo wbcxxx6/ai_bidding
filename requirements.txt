@@ -1,0 +1,12 @@
+flask==3.1.2
+flask-cors==6.0.2
+python-dotenv==1.1.1
+PyJWT==2.10.1
+requests==2.32.5
+mammoth==1.11.0
+Unidecode==1.4.0
+PyPDF2==3.0.1
+chromadb==1.0.20
+openai==1.108.2
+Markdown==3.7
+python-docx==1.1.2

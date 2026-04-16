@@ -33,8 +33,25 @@ _temp_store_lock = threading.Lock()
 
 # 环境变量
 ONLYOFFICE_JWT_SECRET = os.getenv('ONLYOFFICE_JWT_SECRET', 'fsdftertrt34768586sfhjsdhfjhhjfsuhaiubue')
-BACKEND_URL_FOR_DOCKER = os.getenv('BACKEND_URL_FOR_DOCKER', 'host.docker.internal:4000')
-APP_HOST = os.getenv('APP_HOST', 'localhost:4000')
+BACKEND_URL_FOR_DOCKER = os.getenv('BACKEND_URL_FOR_DOCKER', 'host.docker.internal:3012')
+APP_HOST = os.getenv('APP_HOST', 'localhost:3012')
+
+def _with_http_scheme(base_url):
+    base_url = (base_url or '').strip().rstrip('/')
+    if not base_url:
+        return ''
+    if base_url.startswith(('http://', 'https://')):
+        return base_url
+    return f'http://{base_url}'
+
+def get_backend_public_base_url():
+    """Return the backend URL reachable by the OnlyOffice document server."""
+    return _with_http_scheme(
+        os.getenv('APP_PUBLIC_BASE_URL')
+        or os.getenv('BACKEND_URL_FOR_DOCKER')
+        or BACKEND_URL_FOR_DOCKER
+        or APP_HOST
+    )
 
 def get_db():
     """获取数据库连接"""
@@ -477,6 +494,10 @@ def generate_bid_document():
         except Exception as e:
             logging.error(f"chapterDesign JSON 解析失败: {e}")
             return jsonify({'error': 'chapterDesign JSON 解析失败'}), 400
+    if isinstance(chapter_design, dict) and 'chapters' in chapter_design:
+        chapter_design = chapter_design['chapters']
+    if not isinstance(chapter_design, list):
+        return jsonify({'error': 'chapterDesign 格式错误，应为章节数组或包含 chapters 的对象'}), 400
 
     try:
         # 读取 bidding 记录
@@ -571,13 +592,9 @@ def generate_bid_document():
         if generated_docx_path.resolve() != target.resolve():
             shutil.copy2(str(generated_docx_path), str(target))
 
-        # 构造对外可访问的 base URL（优先 APP_PUBLIC_BASE_URL；其次 BACKEND_URL_FOR_DOCKER / APP_HOST / request.url_root）
-        # backend_url = BACKEND_URL_FOR_DOCKER
-        backend_url = "host.docker.internal:3012"
-        relative_path = str(generated_docx_path).replace("\\", "/")
-        file_url = f"http://{backend_url}/api/{relative_path}"
-        # file_url = f"http://{backend_url}/api/{generated_docx_path}"
-        callback_url = f"http://{backend_url}/api/bidding/save-callback"
+        backend_url = get_backend_public_base_url()
+        file_url = f"{backend_url}/api/outputs/{target.name}"
+        callback_url = f"{backend_url}/api/bidding/save-callback"
 
         # document key（用于 OnlyOffice 缓存），使用 DB 中已有的或者新生成
         doc_key = bidding[4]
@@ -619,7 +636,8 @@ def generate_bid_document():
             'message': '投标文件已生成',
             'markdown': str(markdown_file if markdown_file.exists() else merged_md_path),
             'editorConfig': editor_config_with_token,
-            'fileUrl': file_url
+            'fileUrl': file_url,
+            'downloadUrl': f"/api/outputs/{target.name}"
         }), 201
 
     except Exception as e:

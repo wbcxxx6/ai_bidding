@@ -32,10 +32,12 @@ def identify_user():
             # 用户已存在
             conn.close()
             return jsonify({'userId': user['id'], 'isNew': False})
-        else:  
-            return jsonify("用户不存在"), 404
+        cursor.execute('INSERT INTO users (fingerprint_id) VALUES (?)', (fingerprint_id,))
+        conn.commit()
+        user_id = cursor.lastrowid
+        conn.close()
+        return jsonify({'userId': user_id, 'isNew': True})
             
     except Exception as e:
         print(f'[ERROR] User identification failed: {str(e)}')
         return jsonify({'error': 'Failed to identify or create user.'}), 500
-

@@ -3,6 +3,7 @@ import chromadb
 from chromadb.utils import embedding_functions
 from openai import OpenAI
 import hashlib
+from pathlib import Path
 
 DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY")
 # 初始化阿里云百炼客户端
@@ -15,7 +16,21 @@ def init_ali_client():
 
 # 读取文件内容
 def read_file_content(file_path):
-    """读取文件内容，支持多种编码格式的文本文件"""
+    """读取文件内容，支持文本、docx、pdf。"""
+    suffix = Path(file_path).suffix.lower()
+    if suffix == ".docx":
+        import mammoth
+        with open(file_path, "rb") as f:
+            return mammoth.extract_raw_text(f).value
+    if suffix == ".pdf":
+        import PyPDF2
+        text = []
+        with open(file_path, "rb") as f:
+            reader = PyPDF2.PdfReader(f)
+            for page in reader.pages:
+                text.append(page.extract_text() or "")
+        return "\n".join(text)
+
     # 编码尝试顺序：优先utf-8系列，再扩展中文字符集，最后兼容所有字节
     encodings = ['utf-8', 'utf-8-sig', 'gb18030', 'gbk', 'latin-1']
     

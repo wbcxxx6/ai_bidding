@@ -13,7 +13,7 @@ DASHSCOPE_MODEL = os.getenv('DASHSCOPE_MODEL', 'qwen-turbo-latest')
 AI_PROVIDER = os.getenv('AI_PROVIDER', 'dashscope')
 
 
-def call_dashscope_api(messages,model= None):
+def call_dashscope_api(messages, model=None, json_mode=True):
     if not DASHSCOPE_API_KEY:
         raise Exception("DASHSCOPE_API_KEY is not set")
     url = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation'
@@ -26,11 +26,12 @@ def call_dashscope_api(messages,model= None):
         'model': model or DASHSCOPE_MODEL,
         'input': {
             'messages': messages
-        },
-        'parameters': {
-            'result_format': 'json_object'
         }
     }
+    if json_mode:
+        data['parameters'] = {'result_format': 'json_object'}
+    else:
+        data['parameters'] = {'result_format': 'message'}
     
     response = requests.post(url, headers=headers, json=data)
     if response.status_code != 200:
@@ -53,6 +54,6 @@ def generate_bid_section(section_title, section_content, tender_content):
 '''
     response = call_dashscope_api([
                 {'role': 'user','content': prompt}
-            ])
+            ], json_mode=False)
     content = response['output']['choices'][0]['message']['content']
     return content

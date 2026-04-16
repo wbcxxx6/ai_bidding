@@ -71,6 +71,14 @@ def uploaded_file(filename):
     print(f"Full path: {file_path}, Exists: {os.path.exists(file_path)}")
     return send_from_directory(app.config['GENERATED_FOLDER'], filename)
 
+@app.route('/demo')
+def demo_page():
+    return send_from_directory('.', 'demo.html')
+
+@app.route('/api/health')
+def health():
+    return jsonify({'status': 'ok'})
+
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 3012))

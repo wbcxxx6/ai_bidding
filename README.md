@@ -1,4 +1,4 @@
-# 🚀 AI智能招投标文档生成系统---后端
+# AI智能招投标文档生成系统---后端
 
 基于大语言模型 (LLM) 与检索增强生成 (RAG) 技术的智能辅助编写系统。本项目旨在解决传统招投标文件编写耗时长、历史资料利用率低等痛点，通过结合本地知识库高精度检索与大模型文本生成能力，实现招投标模块的自动化撰写、排版与导出。
 
@@ -67,7 +67,7 @@ docker run -d -p 8000:8000 \
 
 (如使用独立服务，请相应修改代码中的 Chroma 客户端连接方式)
 
-## 🚀 快速开始 (Quick Start)
+## 快速开始 (Quick Start)
 
 ### 1. 克隆项目
 
@@ -113,28 +113,51 @@ python main.py
 
 服务启动后，可以通过后端暴露的 API 接口进行调试和测试（默认运行在 3012 端口）。
 
-## 🤝 参与贡献 (Contributing)
+### 5. 启动演示页
 
-本项目正处于快速迭代阶段，这是一个绝佳的参与 AI 落地开源项目的机会！我们期待你的 PR：
+后端启动后，浏览器访问：
 
-### 💻 前端方向 (Urgent!)
+```text
+http://localhost:3012/demo
+```
+
+演示页提供最小闭环：
+
+```text
+上传招标文件 -> AI 预分析 -> 提取章节格式 -> 生成章节设计 -> 生成 Word -> OnlyOffice 在线编辑
+```
+
+本地 Docker 部署 OnlyOffice 时，建议 `.env` 保持以下配置：
+
+```ini
+BACKEND_URL_FOR_DOCKER=host.docker.internal:3012
+APP_PUBLIC_BASE_URL=http://host.docker.internal:3012
+```
+
+其中 `APP_PUBLIC_BASE_URL` 必须是 OnlyOffice Document Server 能访问到的后端地址。若部署在云服务器，应改为真实公网或内网可访问地址，例如：
+
+```ini
+APP_PUBLIC_BASE_URL=http://你的服务器IP:3012
+```
+
+若现场 OnlyOffice 启动失败，演示页仍提供 Word 下载链接，可先演示“AI 生成 Word 并下载”的主链路。
+
+## 备注
+
+前端方向 (Urgent!)
 
 * 从 0 到 1 搭建前端工程。
 * 实现用户登录、知识库上传管理界面。
 * 实现与大模型的交互对话、章节设计界面。
 * 集成 ONLYOFFICE 实现生成文档的在线编辑与预览。
 
-### ⚙️ 后端/AI 方向
+### 后端/AI 方向
 
 * 优化复杂文档解析策略（如针对 PDF 的表格提取）。
 * 优化 RAG 检索算法（混合检索、重排序 Rerank）。
 * 完善 API 接口文档 (Swagger/OpenAPI)。
 * 增加对其他开源模型（如 Ollama 本地模型）的支持。
 
-## 🙏 致谢 (Acknowledgments)
+## 致谢 (Acknowledgments)
 
 本项目在开发与架构设计过程中，部分思路与实现借鉴了开源项目 `xiaodingfeng/contract-review`，特此对原作者的开源精神与优秀代码表示感谢！
-
-## 📄 许可证 (License)
-
-本项目采用 MIT License 开源许可证。
