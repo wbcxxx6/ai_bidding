@@ -1,8 +1,8 @@
-# AI智能招投标文档生成系统---后端
+# 湖北恩施水利配套制造 AI 标书系统---后端
 
-基于大语言模型 (LLM) 与检索增强生成 (RAG) 技术的智能辅助编写系统。本项目旨在解决传统招投标文件编写耗时长、历史资料利用率低等痛点，通过结合本地知识库高精度检索与大模型文本生成能力，实现招投标模块的自动化撰写、排版与导出。
+基于大语言模型 (LLM) 与检索增强生成 (RAG) 技术的内网智能标书编制系统。本项目面向湖北恩施水利配套制造企业，围绕三峡集团及相关水利工程供应链业务，覆盖涡片、螺母、紧固件、金属结构件、设备配套加工、质量检验、交付保障和现场服务等投标场景，通过结合本地知识库高精度检索与大模型文本生成能力，实现招投标文件的自动化分析、撰写、排版、在线编辑与导出。
 
-> 目前本项目是恩施水利自动化标书【仅本地化部署】**核心后端业务逻辑与 AI 链路的开发，前端部分（UI/UX）可基于客户的要求和视觉效果自行定制开发！**
+> 本项目为恩施水利配套制造企业内网部署的 AI 标书系统，核心链路包括招标文件解析、企业知识库检索、投标章节设计、投标正文生成、Word 排版导出与 OnlyOffice 在线编辑。
 
 ---
 
@@ -25,6 +25,7 @@ ai_bidding/
 ├── qwen_client.py         # 大模型 API 封装与调用链路
 ├── file_to_chroma.py      # 知识库文档解析与 Chroma 向量化持久化
 ├── md_to_word.py          # Markdown 转 Word (.docx) 排版导出引擎
+├── bidding_workbench.html # 内网标书工作台页面
 ├── chroma_db/             # ChromaDB 向量数据库本地存储目录
 ├── bidding.db             # SQLite 关系型数据库文件
 └── .env                   # 环境变量与敏感配置 (API Keys 等)
@@ -72,7 +73,7 @@ docker run -d -p 8000:8000 \
 ### 1. 克隆项目
 
 ```bash
-git clone https://github.com/你的用户名/ai_bidding.git
+git clone <内网代码仓库地址>
 cd ai_bidding
 ```
 
@@ -111,17 +112,17 @@ APP_HOST=localhost:3012
 python main.py
 ```
 
-服务启动后，可以通过后端暴露的 API 接口进行调试和测试（默认运行在 3012 端口）。
+服务启动后，可以通过后端暴露的 API 接口进行联调和验收（默认运行在 3012 端口）。
 
-### 5. 启动演示页
+### 5. 访问内网标书工作台
 
 后端启动后，浏览器访问：
 
 ```text
-http://localhost:3012/demo
+http://localhost:3012/bidding
 ```
 
-演示页提供最小闭环：
+工作台提供完整业务闭环：
 
 ```text
 上传招标文件 -> AI 预分析 -> 提取章节格式 -> 生成章节设计 -> 生成 Word -> OnlyOffice 在线编辑
@@ -134,19 +135,19 @@ BACKEND_URL_FOR_DOCKER=host.docker.internal:3012
 APP_PUBLIC_BASE_URL=http://host.docker.internal:3012
 ```
 
-其中 `APP_PUBLIC_BASE_URL` 必须是 OnlyOffice Document Server 能访问到的后端地址。若部署在云服务器，应改为真实公网或内网可访问地址，例如：
+其中 `APP_PUBLIC_BASE_URL` 必须是 OnlyOffice Document Server 能访问到的后端地址。若部署在内网服务器，应改为真实内网可访问地址，例如：
 
 ```ini
-APP_PUBLIC_BASE_URL=http://你的服务器IP:3012
+APP_PUBLIC_BASE_URL=http://内网服务器地址:3012
 ```
 
-若现场 OnlyOffice 启动失败，演示页仍提供 Word 下载链接，可先演示“AI 生成 Word 并下载”的主链路。
+若现场 OnlyOffice 服务暂不可用，工作台仍提供 Word 下载链接，可保障“AI 生成 Word 并下载”的主业务链路可用。
 
 ## 备注
 
-前端方向 (Urgent!)
+前端方向
 
-* 从 0 到 1 搭建前端工程。
+* 根据客户内网部署规范完善前端工程。
 * 实现用户登录、知识库上传管理界面。
 * 实现与大模型的交互对话、章节设计界面。
 * 集成 ONLYOFFICE 实现生成文档的在线编辑与预览。
@@ -156,8 +157,4 @@ APP_PUBLIC_BASE_URL=http://你的服务器IP:3012
 * 优化复杂文档解析策略（如针对 PDF 的表格提取）。
 * 优化 RAG 检索算法（混合检索、重排序 Rerank）。
 * 完善 API 接口文档 (Swagger/OpenAPI)。
-* 增加对其他开源模型（如 Ollama 本地模型）的支持。
-
-## 致谢 (Acknowledgments)
-
-本项目在开发与架构设计过程中，部分思路与实现借鉴了开源项目 `xiaodingfeng/contract-review`，特此对原作者的开源精神与优秀代码表示感谢！
+* 增加对内网私有化模型服务的适配能力。

@@ -214,17 +214,17 @@ def query_chroma(query_content, limit=3, collection=None):
     return formatted_results[0] if is_single_query else formatted_results
 
 
-# 使用示例
+# 本地维护入口
 if __name__ == "__main__":
     # 确保环境变量中设置了API密钥
     if not os.getenv("DASHSCOPE_API_KEY"):
         raise EnvironmentError("请设置环境变量DASHSCOPE_API_KEY")
     
-    # 示例：处理文件并存储
-    # file_result = file_to_chroma("example.txt")
+    # 处理指定文件并写入企业知识库
+    # file_result = file_to_chroma("enterprise_knowledge.txt")
     # print("文件处理结果:", file_result)
     
-    # 示例：查询相似内容
+    # 查询企业知识库相似内容
     query_result = query_chroma("需要查询的内容")
     print("\n查询结果:")
     for i, item in enumerate(query_result["results"], 1):

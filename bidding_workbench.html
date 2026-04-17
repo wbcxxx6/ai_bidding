@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>恩施水利配套制造 AI 标书工作台</title>
+  <style>
+    body { margin: 0; font-family: Arial, "Microsoft YaHei", sans-serif; background: #f6f7f9; color: #172033; }
+    header { padding: 18px 24px; background: #0f5f66; color: #fff; }
+    h1 { margin: 0; font-size: 22px; }
+    main { display: grid; grid-template-columns: 360px 1fr; gap: 16px; padding: 16px; }
+    section { background: #fff; border: 1px solid #dfe3e8; border-radius: 8px; padding: 16px; }
+    button { width: 100%; margin-top: 10px; padding: 10px 12px; border: 0; border-radius: 6px; background: #0f5f66; color: #fff; cursor: pointer; font-size: 14px; }
+    button:disabled { background: #8da3a6; cursor: not-allowed; }
+    input { width: 100%; box-sizing: border-box; }
+    pre { min-height: 180px; max-height: 360px; overflow: auto; background: #111827; color: #e5e7eb; padding: 12px; border-radius: 6px; white-space: pre-wrap; }
+    #editor { height: calc(100vh - 112px); border: 1px solid #dfe3e8; border-radius: 8px; background: #fff; }
+    .hint { color: #5d6b7a; font-size: 13px; line-height: 1.6; }
+    .row { margin: 12px 0; }
+    a { color: #0f5f66; }
+    @media (max-width: 900px) { main { grid-template-columns: 1fr; } #editor { height: 70vh; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>恩施水利配套制造 AI 标书工作台</h1>
+  </header>
+  <main>
+    <section>
+      <div class="row">
+        <input id="file" type="file" accept=".doc,.docx,.pdf,.txt" />
+      </div>
+      <button id="uploadBtn">1. 上传招标文件</button>
+      <button id="preBtn" disabled>2. AI 预分析</button>
+      <button id="chapterBtn" disabled>3. 提取章节格式</button>
+      <button id="designBtn" disabled>4. 生成章节设计</button>
+      <button id="generateBtn" disabled>5. 生成 Word 并在线编辑</button>
+      <div class="row hint">
+        本系统面向恩施本地水利配套制造企业内网部署，支持三峡集团相关配套涡片、螺母及水利工程供应链投标文件的智能编制、在线校核与留痕编辑。文档编辑服务由内网统一配置，生成后可在线编辑并下载归档。
+      </div>
+      <div id="download"></div>
+      <pre id="log">等待上传招标文件...</pre>
+    </section>
+    <section>
+      <div id="editor">投标文件生成后将在这里加载内网在线编辑器。</div>
+    </section>
+  </main>
+  <script>
+    const state = { userId: null, biddingId: null, analysis: null, chapter: null, design: null };
+    const logEl = document.getElementById('log');
+    const onlyOfficeUrl = window.ONLYOFFICE_DOC_SERVER_URL || 'http://localhost';
+
+    function log(title, data) {
+      logEl.textContent = `${title}\n\n${typeof data === 'string' ? data : JSON.stringify(data, null, 2)}`;
+    }
+
+    async function jsonFetch(url, options = {}) {
+      const res = await fetch(url, options);
+      const text = await res.text();
+      let data;
+      try { data = JSON.parse(text); } catch { data = text; }
+      if (!res.ok) throw new Error(typeof data === 'string' ? data : JSON.stringify(data));
+      return data;
+    }
+
+    async function ensureUser() {
+      if (state.userId) return state.userId;
+      const fingerprintId = localStorage.getItem('enshiBiddingFingerprint') || `enshi-bidding-${Date.now()}`;
+      localStorage.setItem('enshiBiddingFingerprint', fingerprintId);
+      const data = await jsonFetch('/api/users/identify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fingerprintId })
+      });
+      state.userId = data.userId;
+      return state.userId;
+    }
+
+    document.getElementById('uploadBtn').onclick = async () => {
+      const file = document.getElementById('file').files[0];
+      if (!file) return log('请先选择文件', '');
+      const userId = await ensureUser();
+      const form = new FormData();
+      form.append('file', file);
+      form.append('userId', userId);
+      const data = await jsonFetch('/api/bidding/upload', { method: 'POST', body: form });
+      state.biddingId = data.biddingId;
+      document.getElementById('preBtn').disabled = false;
+      log('上传完成', data);
+    };
+
+    document.getElementById('preBtn').onclick = async () => {
+      const data = await jsonFetch('/api/bidding/pre-analysis_bid', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ biddingId: state.biddingId })
+      });
+      state.analysis = data;
+      document.getElementById('chapterBtn').disabled = false;
+      log('AI 预分析完成', data);
+    };
+
+    document.getElementById('chapterBtn').onclick = async () => {
+      const data = await jsonFetch('/api/bidding/chapter-analysis_bid', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ biddingId: state.biddingId })
+      });
+      state.chapter = data;
+      document.getElementById('designBtn').disabled = false;
+      log('章节格式提取完成', data);
+    };
+
+    document.getElementById('designBtn').onclick = async () => {
+      const data = await jsonFetch('/api/bidding/chapter-design', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ biddingId: state.biddingId })
+      });
+      state.design = data;
+      document.getElementById('generateBtn').disabled = false;
+      log('章节设计完成', data);
+    };
+
+    document.getElementById('generateBtn').onclick = async () => {
+      const data = await jsonFetch('/api/bidding/generate-bid-document', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ biddingId: state.biddingId, chapterDesign: state.design })
+      });
+      log('Word 生成完成，正在加载 OnlyOffice', data);
+      document.getElementById('download').innerHTML = `<p><a href="${data.downloadUrl}" target="_blank">下载生成的 Word 文件</a></p>`;
+      await loadOnlyOffice(data.editorConfig);
+    };
+
+    function loadScript(src) {
+      return new Promise((resolve, reject) => {
+        if (window.DocsAPI) return resolve();
+        const s = document.createElement('script');
+        s.src = src;
+        s.onload = resolve;
+        s.onerror = reject;
+        document.body.appendChild(s);
+      });
+    }
+
+    async function loadOnlyOffice(config) {
+      await loadScript(`${onlyOfficeUrl}/web-apps/apps/api/documents/api.js`);
+      document.getElementById('editor').innerHTML = '<div id="onlyoffice-editor" style="height:100%"></div>';
+      new DocsAPI.DocEditor('onlyoffice-editor', config);
+    }
+  </script>
+</body>
+</html>

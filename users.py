@@ -18,7 +18,7 @@ def identify_user():
     fingerprint_id = data.get('fingerprintId')
     
     if not fingerprint_id:
-        return jsonify({'error': 'Fingerprint ID is required.'}), 400
+        return jsonify({'error': '未获取到当前操作人员身份，请刷新页面后重试。'}), 400
     
     try:
         conn = get_db()
@@ -39,5 +39,5 @@ def identify_user():
         return jsonify({'userId': user_id, 'isNew': True})
             
     except Exception as e:
-        print(f'[ERROR] User identification failed: {str(e)}')
-        return jsonify({'error': 'Failed to identify or create user.'}), 500
+        print(f'[ERROR] 操作人员身份识别失败: {str(e)}')
+        return jsonify({'error': '操作人员身份识别失败，请联系系统管理员。'}), 500
