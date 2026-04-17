@@ -44,7 +44,7 @@ def init_db():
             original_filename TEXT NOT NULL,
             storage_path TEXT NOT NULL,
             document_key TEXT UNIQUE NOT NULL,
-            status TEXT DEFAULT 'Uploaded',
+            status TEXT DEFAULT '已上传',
             other_response_format TEXT,
             bid_document TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -65,13 +65,22 @@ app.register_blueprint(routes.bp, url_prefix='/api/bidding')
 app.register_blueprint(users.bp, url_prefix='/api/users')
 
 @app.route('/api/outputs/<path:filename>')
-def uploaded_file(filename):
-    print(f"Trying to serve file: {filename}")
+def output_file(filename):
     file_path = os.path.join(app.config['GENERATED_FOLDER'], filename)
-    print(f"Full path: {file_path}, Exists: {os.path.exists(file_path)}")
+    print(f"输出文件访问: {file_path}, Exists: {os.path.exists(file_path)}")
     return send_from_directory(app.config['GENERATED_FOLDER'], filename)
+
+@app.route('/')
+@app.route('/bidding')
+def bidding_workbench():
+    return send_from_directory('.', 'bidding_workbench.html')
+
+@app.route('/api/health')
+def health():
+    return jsonify({'status': 'ok'})
 
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 3012))
-    app.run(host='0.0.0.0', port=port, debug=True) 
+    debug_mode = os.environ.get('FLASK_DEBUG', 'false').lower() == 'true'
+    app.run(host='0.0.0.0', port=port, debug=debug_mode) 
