@@ -75,10 +75,6 @@ def output_file(filename):
 def bidding_workbench():
     return send_from_directory('.', 'bidding_workbench.html')
 
-@app.route('/demo')
-def demo():
-    return send_from_directory('.', 'demo.html')
-
 @app.route('/api/health')
 def health():
     return jsonify({'status': 'ok'})

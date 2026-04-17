@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>恩施水利配套制造 AI 标书工作台</title>
+  <title>清江峡能精密制造 AI 标书工作台</title>
   <style>
     body { margin: 0; font-family: Arial, "Microsoft YaHei", sans-serif; background: #f6f7f9; color: #172033; }
     header { padding: 18px 24px; background: #0f5f66; color: #fff; }
@@ -23,7 +23,7 @@
 </head>
 <body>
   <header>
-    <h1>恩施水利配套制造 AI 标书工作台</h1>
+    <h1>清江峡能精密制造 AI 标书工作台</h1>
   </header>
   <main>
     <section>
@@ -36,7 +36,7 @@
       <button id="designBtn" disabled>4. 生成章节设计</button>
       <button id="generateBtn" disabled>5. 生成 Word 并在线编辑</button>
       <div class="row hint">
-        本系统面向恩施本地水利配套制造企业内网部署，支持三峡集团相关配套涡片、螺母及水利工程供应链投标文件的智能编制、在线校核与留痕编辑。文档编辑服务由内网统一配置，生成后可在线编辑并下载归档。
+        本系统面向湖北恩施清江峡能精密制造厂内网部署，服务于三峡集团及水电装备供应链项目，覆盖水轮机叶片、专用螺母、紧固件、金属结构件、检验检测、交付保障和现场服务等投标材料的智能编制、在线校核与留痕编辑。文档编辑服务由内网统一配置，生成后可在线编辑并下载归档。
       </div>
       <div id="download"></div>
       <pre id="log">等待上传招标文件...</pre>
@@ -48,7 +48,7 @@
   <script>
     const state = { userId: null, biddingId: null, analysis: null, chapter: null, design: null };
     const logEl = document.getElementById('log');
-    const onlyOfficeUrl = window.ONLYOFFICE_DOC_SERVER_URL || 'http://localhost';
+    const onlyOfficeUrl = window.ONLYOFFICE_DOC_SERVER_URL || 'http://localhost:8080';
 
     function log(title, data) {
       logEl.textContent = `${title}\n\n${typeof data === 'string' ? data : JSON.stringify(data, null, 2)}`;
@@ -128,7 +128,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ biddingId: state.biddingId, chapterDesign: state.design })
       });
-      log('Word 生成完成，正在加载 OnlyOffice', data);
+      log('Word 生成完成，正在加载在线编辑器', data);
       document.getElementById('download').innerHTML = `<p><a href="${data.downloadUrl}" target="_blank">下载生成的 Word 文件</a></p>`;
       await loadOnlyOffice(data.editorConfig);
     };
