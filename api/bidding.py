@@ -721,7 +721,7 @@ def chapter_design():
                 project_id=bidding["project_id"],
             )
         )
-        _update_project(bidding["project_id"], project_status="analyzing")
+        _update_project(bidding["project_id"], directory_structure=_json(result), project_status="analyzing")
         return jsonify(result)
     except Exception as exc:
         logging.exception("chapter_design failed")

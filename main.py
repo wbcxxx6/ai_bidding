@@ -2,7 +2,7 @@ from dotenv import load_dotenv
 from flask import Flask, send_from_directory
 from flask_cors import CORS
 
-from api import bidding, files, generation, knowledge, research, settings, users
+from api import bidding, files, generation, knowledge, research, settings, users, v2
 from core.db import init_mysql
 
 
@@ -22,6 +22,7 @@ app.register_blueprint(knowledge.bp, url_prefix="/api")
 app.register_blueprint(files.bp, url_prefix="/api")
 app.register_blueprint(research.bp, url_prefix="/api")
 app.register_blueprint(generation.bp, url_prefix="/api")
+app.register_blueprint(v2.bp, url_prefix="/api/v2")
 
 
 import os

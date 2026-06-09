@@ -80,3 +80,16 @@ export const settingsApi = {
   test: () => http.post('/settings/test-model'),
   getProviders: () => http.get('/settings/model-providers'),
 }
+
+export const v2Api = {
+  health: () => http.get('/v2/health'),
+  listChapters: (projectId) => http.get('/v2/chapters', { params: { projectId } }),
+  getEditorDoc: (chapterId) => http.get(`/v2/chapters/${chapterId}/editor-doc`),
+  saveEditorDoc: (chapterId, data) => http.put(`/v2/chapters/${chapterId}/editor-doc`, { ...data, userId: getUserId() }),
+  listCitations: (chapterId) => http.get(`/v2/chapters/${chapterId}/citations`),
+  createTask: (data) => http.post('/v2/agent-tasks', { ...data, userId: getUserId() }),
+  streamTaskUrl: (taskId) => {
+    const base = window.location.port === '5173' ? 'http://127.0.0.1:3012' : ''
+    return `${base}/api/v2/streams/tasks/${taskId}`
+  },
+}

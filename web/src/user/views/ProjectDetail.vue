@@ -12,6 +12,9 @@
       <el-tab-pane label="生成流程" name="generate">
         <Generation :project-id="id" :bidding-id="project.biddingId" />
       </el-tab-pane>
+      <el-tab-pane label="AI 工作台" name="workbench">
+        <TiptapWorkbench :project-id="id" />
+      </el-tab-pane>
       <el-tab-pane label="联网研究" name="research">
         <Research :project-id="id" />
       </el-tab-pane>
@@ -32,6 +35,7 @@ import { projectApi } from '@/shared/api.js'
 import Generation from './Generation.vue'
 import Research from './Research.vue'
 import Editor from './Editor.vue'
+import TiptapWorkbench from './TiptapWorkbench.vue'
 
 const route = useRoute()
 const id = Number(route.params.id)
