@@ -136,6 +136,21 @@ def seed_defaults(conn):
         )
         cursor.execute(
             """
+            INSERT IGNORE INTO users
+            (id, tenant_id, fingerprint_id, username, display_name, status, created_at, updated_at)
+            VALUES (1, 1, 'default-user', 'default', '默认用户', 'active', %s, %s)
+            """,
+            (now, now),
+        )
+        cursor.execute(
+            """
+            INSERT IGNORE INTO user_roles (user_id, role_id, tenant_id, created_at)
+            VALUES (1, 1, 1, %s)
+            """,
+            (now,),
+        )
+        cursor.execute(
+            """
             INSERT IGNORE INTO knowledge_bases
             (id, tenant_id, company_id, kb_name, kb_type, visibility_scope, status, created_by, created_at, updated_at)
             VALUES (1, 1, 1, '默认企业知识库', 'enterprise', 'tenant', 'active', NULL, %s, %s)

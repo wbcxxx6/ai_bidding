@@ -75,6 +75,32 @@ def _create_project(cursor, user_id, original_filename):
     return project_id
 
 
+def _ensure_upload_user(cursor, user_id):
+    cursor.execute("SELECT id FROM users WHERE id=?", (user_id,))
+    existing = cursor.fetchone()
+    if existing:
+        return existing["id"]
+    fingerprint_id = f"upload-user-{user_id}"
+    cursor.execute("SELECT id FROM users WHERE fingerprint_id=?", (fingerprint_id,))
+    existing = cursor.fetchone()
+    if existing:
+        return existing["id"]
+    now = _now()
+    cursor.execute(
+        """
+        INSERT INTO users (tenant_id, fingerprint_id, username, display_name, status, created_at, updated_at)
+        VALUES (1, ?, ?, ?, 'active', ?, ?)
+        """,
+        (fingerprint_id, f"user-{user_id}", f"用户{user_id}", now, now),
+    )
+    ensured_user_id = cursor.lastrowid
+    cursor.execute(
+        "INSERT IGNORE INTO user_roles (user_id, role_id, tenant_id, created_at) VALUES (?, 1, 1, ?)",
+        (ensured_user_id, now),
+    )
+    return ensured_user_id
+
+
 def _update_project(project_id, **fields):
     if not project_id:
         return
@@ -410,12 +436,17 @@ def upload_bidding():
         return jsonify({"error": "No file selected."}), 400
     if not user_id:
         return jsonify({"error": "User ID is required for upload."}), 400
+    try:
+        requested_user_id = int(user_id)
+    except ValueError:
+        return jsonify({"error": "User ID must be an integer."}), 400
 
     try:
         content_bytes = file.read()
         conn = get_db()
         cursor = conn.cursor()
-        project_id = _create_project(cursor, int(user_id), file.filename)
+        ensured_user_id = _ensure_upload_user(cursor, requested_user_id)
+        project_id = _create_project(cursor, ensured_user_id, file.filename)
         conn.commit()
         conn.close()
 
@@ -423,7 +454,7 @@ def upload_bidding():
             content_bytes=content_bytes,
             original_filename=file.filename,
             file_category="tender_original",
-            owner_user_id=int(user_id),
+            owner_user_id=ensured_user_id,
             project_id=project_id,
             change_source="upload",
         )
@@ -436,7 +467,7 @@ def upload_bidding():
             (user_id, project_id, file_id, original_filename, storage_path, document_key, status, created_at)
             VALUES (?, ?, ?, ?, ?, ?, 'Uploaded', ?)
             """,
-            (user_id, project_id, stored.file_id, file.filename, stored.storage_key, str(uuid.uuid4()), _now()),
+            (ensured_user_id, project_id, stored.file_id, file.filename, stored.storage_key, str(uuid.uuid4()), _now()),
         )
         bidding_id = cursor.lastrowid
         conn.commit()
