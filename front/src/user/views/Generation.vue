@@ -126,8 +126,39 @@
       <el-button type="primary" :loading="loading" @click="runChapterDesign">生成目录结构</el-button>
       <div v-if="outline" class="outline-preview">
         <h4>目录预览（{{ outlineTree.length }} 个一级章节）</h4>
+        <el-alert
+          v-if="outline.needsReview"
+          type="warning"
+          show-icon
+          :closable="false"
+          title="未识别到固定投标文件格式，请确认目录后再生成。"
+        />
+        <div v-if="outline.questions?.length" class="outline-questions">
+          <el-tag v-for="(question, idx) in outline.questions" :key="idx" type="warning">
+            {{ question }}
+          </el-tag>
+        </div>
         <el-tree :data="outlineTree" default-expand-all :props="{ label: 'label', children: 'children' }" />
-        <el-button type="primary" class="mt16" @click="step = 4">确认目录，开始生成</el-button>
+        <div v-if="sourceChapters.length" class="source-snippets">
+          <h4>格式来源</h4>
+          <el-collapse>
+            <el-collapse-item
+              v-for="(ch, idx) in sourceChapters"
+              :key="idx"
+              :title="`${ch.title} - ${ch.sourceHeading || '招标文件'}`"
+            >
+              <pre>{{ ch.sourceText }}</pre>
+            </el-collapse-item>
+          </el-collapse>
+        </div>
+        <el-button
+          type="primary"
+          class="mt16"
+          :disabled="outline.needsReview || hasTemplateIssues || !outline.chapters?.length"
+          @click="step = 4"
+        >
+          确认目录，开始生成
+        </el-button>
       </div>
     </div>
 
@@ -227,10 +258,28 @@ async function restoreState() {
   } catch { /* start from step 0 */ }
 }
 
+const typeLabel = (type) => {
+  if (type === 'locked_template') return '模板锁定'
+  if (type === 'locked_outline') return '目录锁定'
+  if (type === 'free_content') return '自由内容'
+  if (type === 'table') return '模板表单'
+  return type || '未分类'
+}
+
+const sourceChapters = computed(() => {
+  if (!outline.value?.chapters) return []
+  return outline.value.chapters.filter(ch => ch.sourceText)
+})
+
+const hasTemplateIssues = computed(() => {
+  if (!outline.value?.chapters) return false
+  return outline.value.chapters.some(ch => ['toc_only', 'missing'].includes(ch.templateStatus))
+})
+
 const outlineTree = computed(() => {
   if (!outline.value?.chapters) return []
   return outline.value.chapters.map(ch => ({
-    label: `${ch.title}${ch.target_words ? ` (${ch.target_words}字)` : ''}`,
+    label: `${ch.title}（${typeLabel(ch.type)}${ch.templateStatus ? `｜模板:${ch.templateStatus}` : ''}${ch.lockTitle ? '｜标题锁定' : ''}${ch.sourceHeading ? `｜${ch.sourceHeading}` : ''}${ch.target_words ? `｜${ch.target_words}字` : ''}）`,
     children: (ch.sections || []).map(s => ({
       label: s.title,
       children: (s.subsections || []).map(sub => ({
@@ -319,6 +368,10 @@ async function runChapterDesign() {
 }
 
 async function runGenerate() {
+  if (outline.value?.needsReview || hasTemplateIssues.value || !outline.value?.chapters?.length) {
+    ElMessage.warning('请先确认有效目录后再生成')
+    return
+  }
   loading.value = true
   progressText.value = '正在启动生成任务...'
   progressCurrent.value = 0
@@ -327,7 +380,8 @@ async function runGenerate() {
     const response = await biddingApi.generateSSE(props.biddingId, outline.value)
     if (!response.ok) {
       const err = await response.json()
-      ElMessage.error(err.error || '生成失败')
+      const blockers = (err.templateBlockers || []).map(item => `${item.title}: ${item.reason}`).join('；')
+      ElMessage.error(blockers ? `${err.error || '生成失败'} ${blockers}` : (err.error || '生成失败'))
       loading.value = false
       return
     }
@@ -381,6 +435,9 @@ function downloadWord() {
 .step-content { padding: 20px 0; }
 .hint { color: #718096; margin-top: 8px; font-size: 13px; }
 .outline-preview { margin-top: 16px; }
+.outline-questions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.source-snippets { margin-top: 16px; }
+.source-snippets pre { margin: 0; white-space: pre-wrap; font-size: 13px; line-height: 1.6; color: #334155; }
 .mt16 { margin-top: 16px; }
 .result-panel { margin-top: 16px; }
 .generating-hint { display: flex; flex-direction: column; align-items: center; padding: 40px 0; gap: 12px; }

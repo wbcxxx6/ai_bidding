@@ -1,5 +1,5 @@
 from dotenv import load_dotenv
-from flask import Flask, send_from_directory
+from flask import Flask, abort, send_from_directory
 from flask_cors import CORS
 
 from api import bidding, files, generation, knowledge, research, settings, users, v2
@@ -27,34 +27,31 @@ app.register_blueprint(v2.bp, url_prefix="/api/v2")
 
 import os
 
-DIST_DIR = os.path.join(os.path.dirname(__file__), "web", "dist")
+DIST_DIR = os.path.join(os.path.dirname(__file__), "front", "dist")
 USE_DIST = os.path.isdir(DIST_DIR)
+
+
+def serve_frontend():
+    if USE_DIST:
+        return send_from_directory(DIST_DIR, "index.html")
+    abort(503, description="Frontend dist not found. Please build the Vue app in front/.")
 
 
 @app.route("/")
 def index():
-    if USE_DIST:
-        return send_from_directory(DIST_DIR, "index.html")
-    return send_from_directory("frontend", "index.html")
+    return serve_frontend()
 
 
 @app.route("/admin")
-def admin():
-    if USE_DIST:
-        return send_from_directory(DIST_DIR, "admin.html")
-    return send_from_directory("frontend", "index.html")
+@app.route("/admin/<path:subpath>")
+@app.route("/project/<path:subpath>")
+def spa_routes(subpath=None):
+    return serve_frontend()
 
 
 @app.route("/assets/<path:filename>")
 def dist_assets(filename):
     return send_from_directory(os.path.join(DIST_DIR, "assets"), filename)
-
-
-@app.route("/project/<path:subpath>")
-def user_spa_fallback(subpath):
-    if USE_DIST:
-        return send_from_directory(DIST_DIR, "index.html")
-    return send_from_directory("frontend", "index.html")
 
 
 @app.route("/app/<path:filename>")

@@ -22,9 +22,11 @@ def _extract_full_content(data):
 
 
 def _iter_openai_sse(response):
-    for raw_line in response.iter_lines(decode_unicode=True):
+    for raw_line in response.iter_lines(decode_unicode=False):
         if not raw_line:
             continue
+        if isinstance(raw_line, bytes):
+            raw_line = raw_line.decode("utf-8", errors="replace")
         line = raw_line.strip()
         if not line.startswith("data:"):
             continue

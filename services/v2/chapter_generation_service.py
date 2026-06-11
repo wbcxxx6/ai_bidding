@@ -8,6 +8,9 @@ from services.v2.chapter_strategy_service import get_or_create_strategy
 from services.v2.citation_service import create_citation_records
 from services.v2.context_builder import build_context
 from services.v2.editor_doc_service import save_editor_doc
+from services.v2.followup_service import build_followup_questions, save_followup_questions
+from services.v2.image_markdown_service import build_image_plan_markdown
+from services.v2.image_plan_service import plan_chapter_images, save_image_plans
 
 
 LOGGER = logging.getLogger(__name__)
@@ -92,6 +95,7 @@ def _build_prompt(*, chapter, strategy, facts, context):
 - 从二级或三级标题开始组织内容，不要输出封面和目录。
 - 可以引用参考来源编号，如 [CIT-001]。
 - 如果资料不足，请明确写“待补充”并说明缺口。
+- 不要输出 Mermaid；需要流程图、架构图时由图片计划生成占位。
 - 不要输出解释性前言，不要包裹代码块。
 """
 
@@ -101,7 +105,7 @@ def _emit(task_id, event_type, payload=None, message=None):
     return {"type": event_type, **(payload or {}), "eventId": event["id"], "message": message}
 
 
-def stream_chapter_generation(task_id):
+def run_chapter_generation(task_id):
     task = get_task(task_id)
     if not task:
         yield {"type": "error", "error": "Task not found."}
@@ -109,16 +113,7 @@ def stream_chapter_generation(task_id):
     if task.get("taskType") != "chapter_generate":
         yield {"type": "error", "error": "Only chapter_generate is supported in P0."}
         return
-    if task.get("status") in ("succeeded", "failed", "cancelled"):
-        for event in list_events(task_id):
-            payload = event.get("payload") or {}
-            yield {"type": event.get("type"), **payload, "eventId": event.get("id"), "message": event.get("message")}
-        return
-    if task.get("status") == "running":
-        yield {"type": "error", "error": "Task is already running."}
-        return
     try:
-        update_task(task_id, status="running", started=True)
         yield _emit(task_id, "start", {"taskId": task_id, "chapterId": task.get("chapterId")})
 
         chapter = _load_chapter(task.get("chapterId"))
@@ -142,6 +137,19 @@ def stream_chapter_generation(task_id):
         for citation in citations:
             yield _emit(task_id, "citation", citation)
 
+        chapter_for_plan = {
+            "id": task.get("chapterId"),
+            "projectId": task["projectId"],
+            "title": chapter.get("chapter_title"),
+            "type": chapter.get("chapter_type"),
+            "description": _outline_description(chapter),
+        }
+        yield _emit(task_id, "status", {"stage": "image_plan", "text": "正在规划章节配图"})
+        image_plans = plan_chapter_images(chapter_for_plan, context_items=context.get("items") or [])
+        saved_image_plans = save_image_plans(task["projectId"], task["chapterId"], image_plans, task_id=task_id)
+        for plan in saved_image_plans:
+            yield _emit(task_id, "image_plan", plan)
+
         facts = _load_project_facts(task["projectId"])
         prompt = _build_prompt(chapter=chapter, strategy=strategy, facts=facts, context=context)
 
@@ -156,6 +164,11 @@ def stream_chapter_generation(task_id):
             content_parts.append(chunk)
             yield _emit(task_id, "token", {"text": chunk})
 
+        base_content = "".join(content_parts).strip()
+        image_plan_markdown = build_image_plan_markdown(saved_image_plans, existing_markdown=base_content)
+        if image_plan_markdown:
+            content_parts.append(f"\n\n{image_plan_markdown}")
+            yield _emit(task_id, "token", {"text": f"\n\n{image_plan_markdown}"})
         content = "".join(content_parts).strip()
         yield _emit(task_id, "status", {"stage": "saving", "text": "正在保存章节正文"})
         saved = save_editor_doc(
@@ -168,11 +181,49 @@ def stream_chapter_generation(task_id):
         update_task(
             task_id,
             status="succeeded",
-            output_json={"chapterId": task["chapterId"], "editorDocVersion": saved["versionNo"], "citations": citations},
+            output_json={
+                "chapterId": task["chapterId"],
+                "editorDocVersion": saved["versionNo"],
+                "citations": citations,
+                "imagePlans": saved_image_plans,
+            },
             finished=True,
         )
+        followups = build_followup_questions(
+            chapter=chapter_for_plan,
+            context_items=context.get("items") or [],
+            image_plans=saved_image_plans,
+        )
+        saved_followups = save_followup_questions(task["projectId"], task["chapterId"], followups, task_id=task_id)
+        for followup in saved_followups:
+            yield _emit(task_id, "followup", followup)
         yield _emit(task_id, "done", {"chapterId": task["chapterId"], "editorDocVersion": saved["versionNo"]})
     except Exception as exc:
         LOGGER.exception("chapter generation failed task_id=%s", task_id)
+        yield _emit(task_id, "error", {"error": str(exc)[:500]})
+
+
+def stream_chapter_generation(task_id):
+    task = get_task(task_id)
+    if not task:
+        yield {"type": "error", "error": "Task not found."}
+        return
+    if task.get("taskType") != "chapter_generate":
+        yield {"type": "error", "error": "Only chapter_generate is supported in P0."}
+        return
+    if task.get("status") in ("succeeded", "failed", "cancelled"):
+        for event in list_events(task_id):
+            payload = event.get("payload") or {}
+            yield {"type": event.get("type"), **payload, "eventId": event.get("id"), "message": event.get("message")}
+        return
+    if task.get("status") == "running":
+        yield {"type": "error", "error": "Task is already running."}
+        return
+    try:
+        update_task(task_id, status="running", started=True)
+        for event in run_chapter_generation(task_id):
+            yield event
+    except Exception as exc:
+        LOGGER.exception("chapter stream wrapper failed task_id=%s", task_id)
         update_task(task_id, status="failed", error_message=str(exc)[:1000], finished=True)
         yield _emit(task_id, "error", {"error": str(exc)[:500]})

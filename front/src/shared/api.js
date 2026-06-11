@@ -84,10 +84,19 @@ export const settingsApi = {
 export const v2Api = {
   health: () => http.get('/v2/health'),
   listChapters: (projectId) => http.get('/v2/chapters', { params: { projectId } }),
+  getWorkbench: (projectId) => http.get('/v2/chapters/workbench', { params: { projectId } }),
   getEditorDoc: (chapterId) => http.get(`/v2/chapters/${chapterId}/editor-doc`),
   saveEditorDoc: (chapterId, data) => http.put(`/v2/chapters/${chapterId}/editor-doc`, { ...data, userId: getUserId() }),
   listCitations: (chapterId) => http.get(`/v2/chapters/${chapterId}/citations`),
+  listImagePlans: (chapterId) => http.get(`/v2/chapters/${chapterId}/image-plans`),
+  listFollowups: (chapterId) => http.get(`/v2/chapters/${chapterId}/followups`),
+  listImageAssets: (params = {}) => http.get('/v2/images/assets', { params }),
+  createImageAsset: (data) => http.post('/v2/images/assets', { ...data, userId: getUserId() }),
+  generateSectionImage: (data) => http.post('/v2/images/generate', { ...data, userId: getUserId() }),
+  getImageGenerationTask: (taskId, params = {}) => http.get(`/v2/images/generation-tasks/${taskId}`, { params }),
   createTask: (data) => http.post('/v2/agent-tasks', { ...data, userId: getUserId() }),
+  createProjectTask: (projectId, data = {}) => http.post('/v2/agent-tasks', { taskType: 'project_generate', projectId, userId: getUserId(), ...data }),
+  createExportTask: (projectId) => http.post('/v2/agent-tasks', { taskType: 'project_export', projectId, userId: getUserId() }),
   streamTaskUrl: (taskId) => {
     const base = window.location.port === '5173' ? 'http://127.0.0.1:3012' : ''
     return `${base}/api/v2/streams/tasks/${taskId}`

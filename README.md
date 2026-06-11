@@ -28,7 +28,7 @@
 | 文档解析 | Mammoth、PyPDF2 |
 | Word 导出 | python-docx、Markdown |
 | 在线编辑 | OnlyOffice Document Server |
-| 前端 | 原生 HTML/CSS/JavaScript |
+| 前端 | Vue 3 + Vite + Element Plus |
 
 ## 项目结构
 
@@ -50,7 +50,8 @@ ai_bidding/
 │   └── vector_store.py
 ├── export/               # Word 导出能力
 │   └── md_to_word.py
-├── frontend/             # 前端页面
+├── front/                # Vue 前端（用户端 + 后台管理）
+├── frontend/             # 历史静态前端，已冻结
 ├── docs/                 # 设计文档
 ├── legacy/               # 历史代码备份
 ├── main.py               # Flask 应用入口
@@ -131,16 +132,52 @@ MYSQL_DATABASE=bidding
 MYSQL_CHARSET=utf8mb4
 ```
 
-### 5. 启动应用
+### 5. 启动后端 API
 
 ```bash
 python main.py
 ```
 
-默认访问地址：
+后端默认地址：
 
 ```text
 http://localhost:3012
+```
+
+### 6. 启动前端开发环境
+
+```bash
+cd front
+npm install
+npm run dev
+```
+
+前端默认地址：
+
+```text
+http://localhost:5173
+```
+
+Vite 开发服务器会把 `/api` 代理到 Flask，因此本地开发时前后端是分离运行的。
+
+### 7. 构建前端产物
+
+```bash
+cd front
+npm run build
+```
+
+构建完成后，Flask 会自动托管 `front/dist/`，此时访问下面地址即可：
+
+```bash
+http://localhost:3012
+```
+
+用户端与后台管理会共用同一个 SPA 入口：
+
+```text
+http://localhost:3012/
+http://localhost:3012/admin
 ```
 
 ## 模型与 Embedding 配置
@@ -218,7 +255,8 @@ docker run -d \
 | 用户 | `/api/users` | 轻量用户识别 |
 | 模型设置 | `/api/settings` | 模型提供商列表、模型配置、模型连接测试 |
 | 知识库 | `/api` | 知识库管理、文档入库、RAG 检索 |
-| 前端 | `/` | 工作台页面 |
+| 前端 | `/` | 用户端工作台 |
+| 管理端 | `/admin` | 后台管理页面，当前先与用户端合并在同一个前端应用内 |
 
 ## 当前存储说明
 

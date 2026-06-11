@@ -6,6 +6,9 @@ from flask import Blueprint, jsonify, request
 from core.db import get_db
 from services.v2.citation_service import list_chapter_citations
 from services.v2.editor_doc_service import get_editor_doc, save_editor_doc
+from services.v2.followup_service import list_chapter_followups
+from services.v2.image_plan_service import list_chapter_image_plans
+from services.v2.workbench_service import get_project_workbench_overview
 
 
 bp = Blueprint("v2_chapters", __name__, url_prefix="/chapters")
@@ -135,6 +138,18 @@ def list_chapters():
         conn.close()
 
 
+@bp.route("/workbench", methods=["GET"])
+def workbench_overview():
+    project_id = request.args.get("projectId") or request.args.get("project_id")
+    if not project_id:
+        return jsonify({"error": "projectId is required."}), 400
+    try:
+        _materialize_project_chapters(int(project_id))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 404
+    return jsonify(get_project_workbench_overview(int(project_id)))
+
+
 @bp.route("/<int:chapter_id>/editor-doc", methods=["GET"])
 def read_editor_doc(chapter_id):
     return jsonify(get_editor_doc(chapter_id))
@@ -159,3 +174,13 @@ def write_editor_doc(chapter_id):
 @bp.route("/<int:chapter_id>/citations", methods=["GET"])
 def chapter_citations(chapter_id):
     return jsonify({"items": list_chapter_citations(chapter_id)})
+
+
+@bp.route("/<int:chapter_id>/image-plans", methods=["GET"])
+def chapter_image_plans(chapter_id):
+    return jsonify({"items": list_chapter_image_plans(chapter_id)})
+
+
+@bp.route("/<int:chapter_id>/followups", methods=["GET"])
+def chapter_followups(chapter_id):
+    return jsonify({"items": list_chapter_followups(chapter_id)})
