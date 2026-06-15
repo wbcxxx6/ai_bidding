@@ -1,0 +1,65 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+secrets/
+
+# Local databases and vector stores
+*.db
+*.sqlite
+*.sqlite3
+chroma_db/
+milvus_data/
+mysql_data/
+redis_data/
+
+# User uploads and generated documents
+uploads/
+outputs/
+tmp/
+temp/
+*.doc
+*.docx
+*.pdf
+*.xls
+*.xlsx
+*.ppt
+*.pptx
+*.md.tmp
+
+# Logs
+logs/
+*.log
+*.log.*
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Node / frontend build outputs, reserved
+node_modules/
+dist/
+build/

@@ -1,0 +1,44 @@
+<svg width="1440" height="900" viewBox="0 0 1440 900" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1440" height="900" fill="#F2F5FA"/>
+  <rect x="38" y="34" width="1364" height="832" rx="26" fill="#FFFFFF" stroke="#D9E2EF"/>
+  <rect x="72" y="66" width="1296" height="118" rx="18" fill="#172033"/>
+  <text x="104" y="112" font-family="Arial, sans-serif" font-size="26" font-weight="700" fill="#FFFFFF">AI 工作台</text>
+  <text x="104" y="148" font-family="Arial, sans-serif" font-size="17" fill="#B9C7DA">项目总览：脱敏项目 / 招标文件 ████████████████</text>
+  <rect x="1030" y="92" width="132" height="44" rx="10" fill="#2864D9"/>
+  <text x="1060" y="120" font-family="Arial, sans-serif" font-size="17" font-weight="700" fill="#FFFFFF">导出 Word</text>
+  <rect x="1180" y="92" width="132" height="44" rx="10" fill="#FFFFFF" fill-opacity="0.12"/>
+  <text x="1220" y="120" font-family="Arial, sans-serif" font-size="17" font-weight="700" fill="#FFFFFF">保存</text>
+
+  <rect x="72" y="212" width="264" height="606" rx="16" fill="#F8FAFD" stroke="#DDE6F2"/>
+  <text x="102" y="254" font-family="Arial, sans-serif" font-size="21" font-weight="700" fill="#172033">章节工作台</text>
+  <rect x="102" y="284" width="204" height="42" rx="10" fill="#E8F1FF"/>
+  <text x="122" y="311" font-family="Arial, sans-serif" font-size="16" font-weight="700" fill="#2864D9">1. 项目理解</text>
+  <text x="122" y="363" font-family="Arial, sans-serif" font-size="16" fill="#526174">2. 技术方案</text>
+  <text x="122" y="413" font-family="Arial, sans-serif" font-size="16" fill="#526174">3. 实施计划</text>
+  <text x="122" y="463" font-family="Arial, sans-serif" font-size="16" fill="#526174">4. 服务承诺</text>
+  <text x="122" y="513" font-family="Arial, sans-serif" font-size="16" fill="#526174">5. 风险控制</text>
+
+  <rect x="366" y="212" width="708" height="606" rx="16" fill="#FFFFFF" stroke="#DDE6F2"/>
+  <text x="414" y="268" font-family="Arial, sans-serif" font-size="30" font-weight="700" fill="#172033">第一章 项目理解</text>
+  <rect x="414" y="300" width="600" height="1" fill="#E6ECF5"/>
+  <text x="414" y="348" font-family="Arial, sans-serif" font-size="18" fill="#2D3748">本章节围绕项目背景、建设目标、业务边界与实施重点展开。</text>
+  <text x="414" y="392" font-family="Arial, sans-serif" font-size="18" fill="#2D3748">系统已依据招标要求提炼关键响应点，并结合企业资料生成初稿。</text>
+  <rect x="414" y="426" width="514" height="86" rx="10" fill="#FFF8E8" stroke="#F6C76D"/>
+  <text x="438" y="462" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#8A5A00">选区改写</text>
+  <text x="438" y="492" font-family="Arial, sans-serif" font-size="16" fill="#8A5A00">已选中正文片段，可直接针对该段重新生成。</text>
+  <rect x="414" y="556" width="602" height="16" rx="8" fill="#E9EEF6"/>
+  <rect x="414" y="590" width="560" height="16" rx="8" fill="#E9EEF6"/>
+  <rect x="414" y="624" width="590" height="16" rx="8" fill="#E9EEF6"/>
+  <rect x="414" y="658" width="460" height="16" rx="8" fill="#E9EEF6"/>
+
+  <rect x="1104" y="212" width="264" height="606" rx="16" fill="#F8FAFD" stroke="#DDE6F2"/>
+  <text x="1134" y="254" font-family="Arial, sans-serif" font-size="21" font-weight="700" fill="#172033">AI 助手</text>
+  <rect x="1134" y="286" width="204" height="92" rx="12" fill="#FFFFFF" stroke="#DDE6F2"/>
+  <text x="1156" y="322" font-family="Arial, sans-serif" font-size="16" font-weight="700" fill="#172033">重写建议</text>
+  <text x="1156" y="352" font-family="Arial, sans-serif" font-size="14" fill="#667085">强化响应招标评分点</text>
+  <rect x="1134" y="402" width="204" height="92" rx="12" fill="#FFFFFF" stroke="#DDE6F2"/>
+  <text x="1156" y="438" font-family="Arial, sans-serif" font-size="16" font-weight="700" fill="#172033">待办</text>
+  <text x="1156" y="468" font-family="Arial, sans-serif" font-size="14" fill="#667085">补充实施周期说明</text>
+  <rect x="1134" y="522" width="204" height="44" rx="10" fill="#2864D9"/>
+  <text x="1182" y="550" font-family="Arial, sans-serif" font-size="17" font-weight="700" fill="#FFFFFF">改写选区</text>
+</svg>
