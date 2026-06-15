@@ -26,6 +26,9 @@ from services.agent_orchestrator import (
     run_tender_parser_agent,
 )
 from services.ingestion_service import extract_text_from_bytes, ingest_document
+from services.outline_builder import build_outline
+from services.tender_format_parser import parse_tender_format
+from services.template_validation import is_valid_template_text
 from services.qwen_client import call_dashscope_api, generate_bid_section
 from storage.storage_service import BlobTooLarge, FileTypeNotAllowed, storage_service
 
@@ -42,6 +45,17 @@ def _now():
 
 def _json(value):
     return json.dumps(value, ensure_ascii=False)
+
+
+def _json_loads(value, default=None):
+    if not value:
+        return default
+    if isinstance(value, (dict, list)):
+        return value
+    try:
+        return json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        return default
 
 
 def _row(sql, params=()):
@@ -73,6 +87,32 @@ def _create_project(cursor, user_id, original_filename):
         (project_id, user_id, now),
     )
     return project_id
+
+
+def _ensure_upload_user(cursor, user_id):
+    cursor.execute("SELECT id FROM users WHERE id=?", (user_id,))
+    existing = cursor.fetchone()
+    if existing:
+        return existing["id"]
+    fingerprint_id = f"upload-user-{user_id}"
+    cursor.execute("SELECT id FROM users WHERE fingerprint_id=?", (fingerprint_id,))
+    existing = cursor.fetchone()
+    if existing:
+        return existing["id"]
+    now = _now()
+    cursor.execute(
+        """
+        INSERT INTO users (tenant_id, fingerprint_id, username, display_name, status, created_at, updated_at)
+        VALUES (1, ?, ?, ?, 'active', ?, ?)
+        """,
+        (fingerprint_id, f"user-{user_id}", f"用户{user_id}", now, now),
+    )
+    ensured_user_id = cursor.lastrowid
+    cursor.execute(
+        "INSERT IGNORE INTO user_roles (user_id, role_id, tenant_id, created_at) VALUES (?, 1, 1, ?)",
+        (ensured_user_id, now),
+    )
+    return ensured_user_id
 
 
 def _update_project(project_id, **fields):
@@ -138,13 +178,37 @@ def read_tender_file(bidding_id):
     return blob.get("content_text") or extract_text_from_bytes(blob["original_filename"], blob["content"])
 
 
+def _title_core(text):
+    clean = re.sub(r"^#+\s*", "", text or "").strip()
+    clean = re.sub(r"^(?:第\s*)?\d+\s*章\s*", "", clean)
+    clean = re.sub(r"^(?:[一二三四五六七八九十]+|\d+)[、．.]\s*", "", clean)
+    return re.sub(r"\s+", "", clean)
+
+
+def _template_starts_with_title(content, section_name):
+    for line in (content or "").splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        return _title_core(stripped) == _title_core(section_name)
+    return False
+
+
 def merge_sections(section_contents):
     parts = []
-    for index, (section_name, content) in enumerate(section_contents, 1):
+    for index, item in enumerate(section_contents, 1):
+        if len(item) == 3:
+            section_name, content, chapter = item
+        else:
+            section_name, content = item
+            chapter = {}
         clean_content = content.strip()
         if clean_content.startswith('```'):
             clean_content = re.sub(r'^```\w*\n?', '', clean_content)
             clean_content = re.sub(r'\n?```$', '', clean_content)
+        if _is_template_locked_chapter(chapter):
+            parts.append(f"<!-- locked_template -->\n{clean_content}\n<!-- /locked_template -->\n")
+            continue
         if not clean_content.startswith('#'):
             parts.append(f"## 第{index}章 {section_name}\n\n{clean_content}\n")
         else:
@@ -167,9 +231,14 @@ def _chapter_description(chapter):
             title = subsection.get("title", "")
             describe = subsection.get("describe", "")
             if title:
-                parts.append(f"  三级小节：{title}")
+                min_words = subsection.get("min_words") or chapter.get("min_subsection_words")
+                parts.append(f"  三级小节：{title}" + (f"（正文不少于{min_words}字）" if min_words else ""))
             if describe:
                 parts.append(f"    内容要求：{describe}")
+    if chapter.get("min_heading_level"):
+        parts.append(f"\n标题层级要求：至少写到{chapter['min_heading_level']}级标题。")
+    if chapter.get("min_subsection_words"):
+        parts.append(f"三级小节篇幅要求：每个三级小节正文不少于{chapter['min_subsection_words']}字。")
     return "\n".join(parts)
 
 
@@ -189,6 +258,45 @@ def _get_template_for_chapter(analysis_data, chapter_title):
         if len(key_chars & title_chars) / max(len(key_chars | title_chars), 1) > 0.5:
             return val.get("template_text", "")
     return None
+
+
+def _is_template_locked_chapter(chapter):
+    chapter_type = (chapter.get("type") or "normal").lower()
+    return chapter_type in {"table", "form", "locked_template"}
+
+
+def _template_needs_review(chapter):
+    return chapter.get("templateStatus") in {"toc_only", "missing"}
+
+
+def _select_template_content(analysis, title, chapter):
+    source_text = chapter.get("sourceText") or ""
+    if source_text and is_valid_template_text(title, source_text):
+        return source_text
+    template_content = _get_template_for_chapter(analysis, title)
+    if template_content and is_valid_template_text(title, template_content):
+        return template_content
+    return ""
+
+
+def _template_generation_blockers(chapters, analysis):
+    blockers = []
+    for chapter in chapters or []:
+        if not _is_template_locked_chapter(chapter):
+            continue
+        title = chapter.get("title") or "未命名模板章节"
+        if _template_needs_review(chapter):
+            reason = "只识别到目录项，未识别到招标文件正文模板" if chapter.get("templateStatus") == "toc_only" else "缺少招标文件正文模板"
+            blockers.append({"title": title, "reason": reason})
+            continue
+        if not _select_template_content(analysis, title, chapter):
+            blockers.append({"title": title, "reason": "未识别到有效正文模板"})
+    return blockers
+
+
+def _replace_outside_locked_templates(content, replace_fn):
+    parts = re.split(r"(<!-- locked_template -->.*?<!-- /locked_template -->)", content or "", flags=re.DOTALL)
+    return "".join(part if part.startswith("<!-- locked_template -->") else replace_fn(part) for part in parts)
 
 
 def _fill_template_placeholders(project_id, template_text):
@@ -325,21 +433,24 @@ def _fill_enterprise_info(project_id, content):
         "招标人": fact_map.get("purchaser_name") or "招标人",
     }
 
-    for placeholder, value in replacements.items():
-        if value and placeholder != value:
-            content = content.replace(f"[{placeholder}]", value)
-            content = content.replace(f"【{placeholder}】", value)
-            content = content.replace(f"${{{placeholder}}}", value)
-            content = content.replace(f"{{{{{placeholder}}}}}", value)
+    def apply_replacements(text):
+        result = text
+        for placeholder, value in replacements.items():
+            if value and placeholder != value:
+                result = result.replace(f"[{placeholder}]", value)
+                result = result.replace(f"【{placeholder}】", value)
+                result = result.replace(f"${{{placeholder}}}", value)
+                result = result.replace(f"{{{{{placeholder}}}}}", value)
 
-    if fact_map.get("bidder_name"):
-        content = content.replace("XX科技有限公司", fact_map["bidder_name"])
-        content = content.replace("XX有限公司", fact_map["bidder_name"])
-    if fact_map.get("project_name"):
-        content = content.replace("XX项目", fact_map["project_name"])
-        content = content.replace("本项目", fact_map["project_name"])
+        if fact_map.get("bidder_name"):
+            result = result.replace("XX科技有限公司", fact_map["bidder_name"])
+            result = result.replace("XX有限公司", fact_map["bidder_name"])
+        if fact_map.get("project_name"):
+            result = result.replace("XX项目", fact_map["project_name"])
+            result = result.replace("本项目", fact_map["project_name"])
+        return result
 
-    return content
+    return _replace_outside_locked_templates(content, apply_replacements)
 
 
 @bp.route("/projects", methods=["GET"])
@@ -377,12 +488,42 @@ def get_project(project_id):
             "SELECT id, original_filename, status, bid_document, generated_file_id, document_key FROM bidding WHERE project_id=? ORDER BY id DESC LIMIT 1",
             (project_id,),
         ).fetchone()
+        bid_document = conn.execute(
+            """
+            SELECT id, current_version_id, status
+            FROM bid_documents
+            WHERE project_id=?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (project_id,),
+        ).fetchone()
+        latest_generate_task = conn.execute(
+            """
+            SELECT output_json
+            FROM generation_tasks
+            WHERE project_id=? AND task_type='generate_document' AND status='succeeded'
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (project_id,),
+        ).fetchone()
         result = dict(project)
+        analysis_data = _json_loads(result.get("analysis_data"), {})
+        directory_structure = _json_loads(result.get("directory_structure"), None)
+        latest_output = _json_loads((latest_generate_task or {}).get("output_json"), {}) or {}
         result["biddingId"] = bidding["id"] if bidding else None
         result["biddingFilename"] = bidding["original_filename"] if bidding else None
         result["biddingStatus"] = bidding["status"] if bidding else None
-        result["generated_file_id"] = bidding["generated_file_id"] if bidding else None
+        result["generated_file_id"] = (bidding["generated_file_id"] if bidding else None) or latest_output.get("wordFileId")
         result["document_key"] = bidding["document_key"] if bidding else None
+        result["analysisData"] = analysis_data
+        result["directoryStructure"] = directory_structure
+        result["bidDocumentId"] = (bid_document or {}).get("id") or latest_output.get("bidDocumentId")
+        result["bidDocumentStatus"] = (bid_document or {}).get("status")
+        result["generatedFileUrl"] = latest_output.get("fileUrl") or (
+            f"/api/files/{result['generated_file_id']}/download" if result.get("generated_file_id") else None
+        )
         return jsonify(result)
     finally:
         conn.close()
@@ -410,12 +551,17 @@ def upload_bidding():
         return jsonify({"error": "No file selected."}), 400
     if not user_id:
         return jsonify({"error": "User ID is required for upload."}), 400
+    try:
+        requested_user_id = int(user_id)
+    except ValueError:
+        return jsonify({"error": "User ID must be an integer."}), 400
 
     try:
         content_bytes = file.read()
         conn = get_db()
         cursor = conn.cursor()
-        project_id = _create_project(cursor, int(user_id), file.filename)
+        ensured_user_id = _ensure_upload_user(cursor, requested_user_id)
+        project_id = _create_project(cursor, ensured_user_id, file.filename)
         conn.commit()
         conn.close()
 
@@ -423,7 +569,7 @@ def upload_bidding():
             content_bytes=content_bytes,
             original_filename=file.filename,
             file_category="tender_original",
-            owner_user_id=int(user_id),
+            owner_user_id=ensured_user_id,
             project_id=project_id,
             change_source="upload",
         )
@@ -436,7 +582,7 @@ def upload_bidding():
             (user_id, project_id, file_id, original_filename, storage_path, document_key, status, created_at)
             VALUES (?, ?, ?, ?, ?, ?, 'Uploaded', ?)
             """,
-            (user_id, project_id, stored.file_id, file.filename, stored.storage_key, str(uuid.uuid4()), _now()),
+            (ensured_user_id, project_id, stored.file_id, file.filename, stored.storage_key, str(uuid.uuid4()), _now()),
         )
         bidding_id = cursor.lastrowid
         conn.commit()
@@ -594,6 +740,8 @@ Tender content:
                 [{"role": "user", "content": prompt}],
                 task_type="chapter_design",
                 project_id=bidding["project_id"],
+                timeout=25,
+                retries=0,
             )
         )
         _update_project(bidding["project_id"], directory_structure=_json(raw), project_status="analyzing")
@@ -622,110 +770,25 @@ def chapter_design():
 
     format_reqs = data.get("formatRequirements") or {}
     analysis = json.loads(bidding["analysis_data"])
-    existing_outline = bidding.get("directory_structure") or ""
 
-    format_constraint = ""
-    if format_reqs.get("required_chapters"):
-        chapters_list = "\n".join(
-            f"  - {'【必选】' if ch.get('is_mandatory') else '【可选】'}{ch.get('title', '')}：{ch.get('description', '')}"
-            for ch in format_reqs["required_chapters"]
-        )
-        format_constraint = f"""
-【重要：招标文件规定的投标文件格式要求】
-投标文件组成：{format_reqs.get('document_composition', '')}
-
-招标文件要求必须包含的章节：
-{chapters_list}
-
-格式注意事项：{'; '.join(format_reqs.get('format_notes', []))}
-
-你设计的目录必须严格包含以上所有【必选】章节，章节标题应与招标文件要求一致或高度相似。
-不得遗漏任何必选章节，可以在此基础上补充其他章节。
-"""
-
-    prompt = f"""你是具有十年经验的资深投标文件目录规划专家。请根据以下招标文件分析结果，设计一份完整、详细、专业的投标文件目录结构。
-{format_constraint}
-招标要求材料：
-{analysis.get('bidding_requirements', '')}
-
-招标摘要：
-{analysis.get('bidding_summary', '')}
-
-评分标准与强制要求：
-{analysis.get('bidding_meta', '')}
-
-{f'参考原始目录结构：{existing_outline}' if existing_outline else ''}
-
-【目录设计规范】
-
-一、章节数量要求：
-- 一级章节数量：不少于 12 个，建议 15-20 个
-- 必须包含以下一级章节（根据招标文件实际要求调整）：
-  1. 投标函及投标函附录
-  2. 法定代表人身份证明/授权委托书
-  3. 投标报价表
-  4. 资格审查材料（营业执照、资质证书、业绩证明等）
-  5. 技术方案（总体设计、系统架构、功能设计等）
-  6. 实施方案（实施计划、进度安排、里程碑等）
-  7. 项目管理方案（组织架构、管理制度、沟通机制等）
-  8. 质量保障方案（质量体系、质量标准、检验方法等）
-  9. 安全保障方案（安全体系、应急预案、数据安全等）
-  10. 售后服务方案（服务体系、响应时间、维护计划等）
-  11. 人员配置方案（团队组成、岗位职责、人员资质等）
-  12. 培训方案（培训计划、培训内容、培训方式等）
-  13. 类似项目业绩（案例介绍、合同证明等）
-  14. 商务偏离表/技术偏离表
-  15. 其他补充材料
-
-二、层级结构要求：
-- 每个正文型一级章节（type=normal）下必须有 3-6 个二级节
-- 每个二级节下必须有 2-4 个三级小节
-- 三级小节的 describe 字段必须详细说明该小节应包含的具体内容（不少于 30 字）
-
-三、字数预算要求：
-- 格式性章节（投标函、报价表等）：target_words 设为 500
-- 技术方案、实施方案：target_words 设为 3000-5000
-- 服务方案、质量保障、安全保障：target_words 设为 2000-3000
-- 人员配置、培训方案：target_words 设为 1500-2000
-- 项目管理、业绩介绍：target_words 设为 1500-2000
-
-四、分类规则：
-- 格式性章节（投标函、授权书、承诺函、报价表、偏离表）：type = "table"
-- 正文型章节（技术方案、实施方案、服务方案等）：type = "normal"
-
-输出严格 JSON 格式：
-{{
-  "chapters": [
-    {{
-      "title": "一级章节标题",
-      "type": "normal",
-      "content": "本章整体说明和写作方向（50字以上）",
-      "target_words": 3000,
-      "sections": [
-        {{
-          "title": "二级节标题",
-          "subsections": [
-            {{"title": "三级小节标题", "describe": "该小节应包含的具体内容，需要阐述的要点、需要响应的评分项、需要展示的能力或方案细节（30字以上）"}}
-          ]
-        }}
-      ]
-    }}
-  ]
-}}
-"""
+    tender_content = ""
     try:
-        result, _ = _parse_llm_json(
-            call_dashscope_api(
-                [{"role": "user", "content": prompt}],
-                task_type="chapter_design",
-                project_id=bidding["project_id"],
-            )
-        )
-        _update_project(bidding["project_id"], project_status="analyzing")
-        return jsonify(result)
+        tender_content = read_tender_file(bidding_id) or ""
     except Exception as exc:
-        logging.exception("chapter_design failed")
-        return jsonify({"error": f"Chapter design failed: {str(exc)}"}), 500
+        logging.warning("read tender text for format parsing failed: %s", str(exc)[:200])
+
+    format_plan = parse_tender_format(tender_content, analysis)
+    format_first_outline = build_outline(format_plan, format_reqs, analysis)
+    if format_reqs:
+        analysis["bid_document_format_confirmed"] = format_reqs
+    analysis["outline_generation_mode"] = "tender_format_first" if format_reqs else "free_design"
+    _update_project(
+        bidding["project_id"],
+        analysis_data=_json(analysis),
+        directory_structure=_json(format_first_outline),
+        project_status="analyzing",
+    )
+    return jsonify(format_first_outline)
 
 
 @bp.route("/generate-bid-document", methods=["POST"])
@@ -760,6 +823,23 @@ def generate_bid_document():
             "error": "Generation blocked: pending confirmation required.",
             "blocked": True,
             "pendingGates": pending_gates,
+        }), 409
+
+    analysis = {}
+    if bidding.get("project_id"):
+        project_row = _row("SELECT analysis_data FROM bid_projects WHERE id=?", (bidding["project_id"],))
+        if project_row and project_row.get("analysis_data"):
+            try:
+                analysis = json.loads(project_row["analysis_data"])
+            except (TypeError, json.JSONDecodeError):
+                analysis = {}
+
+    template_blockers = _template_generation_blockers(chapters, analysis)
+    if template_blockers:
+        return jsonify({
+            "error": "模板章节缺少招标文件正文，已停止生成。请重新上传包含响应文件格式正文页的招标文件，或在目录确认阶段补充模板正文。",
+            "blocked": True,
+            "templateBlockers": template_blockers,
         }), 409
 
     from flask import Response
@@ -860,17 +940,16 @@ def generate_bid_document():
 
                 yield f"data: {_json({'type': 'progress', 'current': idx + 1, 'total': total, 'chapter': title})}\n\n"
 
-                if (chapter.get("type") or "normal").lower() == "table":
-                    template_content = _get_template_for_chapter(analysis, title)
-                    if template_content:
-                        content = _fill_template_placeholders(bidding["project_id"], template_content)
-                    else:
-                        content = chapter.get("content", "")
+                if _is_template_locked_chapter(chapter):
+                    template_content = _select_template_content(analysis, title, chapter)
+                    if not template_content:
+                        raise ValueError(f"{title} 缺少招标文件原始正文模板，请补充后再生成。")
+                    content = template_content
                     create_chapter_version(
                         chapter_id=chapter_id, content=content,
                         generation_task_id=task_id,
                     )
-                    section_contents.append((title, content))
+                    section_contents.append((title, content, chapter))
                     continue
 
                 try:
@@ -904,10 +983,10 @@ def generate_bid_document():
                         chapter_id=chapter_id, content=content,
                         generation_task_id=task_id,
                     )
-                    section_contents.append((title, content))
+                    section_contents.append((title, content, chapter))
                 except Exception as exc:
                     logging.warning("chapter failed id=%s: %s", chapter_id, str(exc)[:200])
-                    section_contents.append((title, f"（本章生成失败：{str(exc)[:100]}）"))
+                    section_contents.append((title, f"（本章生成失败：{str(exc)[:100]}）", chapter))
 
             yield f"data: {_json({'type': 'progress', 'current': total, 'total': total, 'chapter': '正在合并文档...'})}\n\n"
 
@@ -986,6 +1065,20 @@ def generate_bid_document():
                 word_file_id = markdown_stored.file_id
 
             _update_project(bidding["project_id"], project_status="completed")
+            try:
+                conn = get_db()
+                conn.execute(
+                    """
+                    UPDATE bidding
+                    SET status='Generated', generated_file_id=?, bid_document=?, document_key=COALESCE(document_key, ?)
+                    WHERE id=?
+                    """,
+                    (word_file_id, file_url, f"gen-{bidding['project_id']}", bidding_id),
+                )
+                conn.commit()
+                conn.close()
+            except Exception:
+                logging.exception("failed to persist generated bidding file")
             _finish_task(task_id, "succeeded", {"fileUrl": file_url, "wordFileId": word_file_id, "bidDocumentId": bid_document_id})
 
             yield f"data: {_json({'type': 'done', 'fileUrl': file_url, 'wordFileId': word_file_id, 'bidDocumentId': bid_document_id, 'markdownFileId': markdown_stored.file_id})}\n\n"

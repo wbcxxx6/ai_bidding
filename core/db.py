@@ -136,6 +136,21 @@ def seed_defaults(conn):
         )
         cursor.execute(
             """
+            INSERT IGNORE INTO users
+            (id, tenant_id, fingerprint_id, username, display_name, status, created_at, updated_at)
+            VALUES (1, 1, 'default-user', 'default', '默认用户', 'active', %s, %s)
+            """,
+            (now, now),
+        )
+        cursor.execute(
+            """
+            INSERT IGNORE INTO user_roles (user_id, role_id, tenant_id, created_at)
+            VALUES (1, 1, 1, %s)
+            """,
+            (now,),
+        )
+        cursor.execute(
+            """
             INSERT IGNORE INTO knowledge_bases
             (id, tenant_id, company_id, kb_name, kb_type, visibility_scope, status, created_by, created_at, updated_at)
             VALUES (1, 1, 1, '默认企业知识库', 'enterprise', 'tenant', 'active', NULL, %s, %s)
@@ -740,6 +755,213 @@ SCHEMA_STATEMENTS = [
         CONSTRAINT fk_research_sources_task FOREIGN KEY (research_task_id) REFERENCES research_tasks(id),
         CONSTRAINT fk_research_sources_report FOREIGN KEY (research_report_id) REFERENCES research_reports(id),
         CONSTRAINT fk_research_sources_file FOREIGN KEY (file_id) REFERENCES document_files(id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS agent_task (
+        id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+        tenant_id BIGINT UNSIGNED NOT NULL DEFAULT 1,
+        project_id BIGINT UNSIGNED NOT NULL,
+        bid_document_id BIGINT UNSIGNED NULL,
+        chapter_id BIGINT UNSIGNED NULL,
+        parent_task_id BIGINT UNSIGNED NULL,
+        task_type VARCHAR(64) NOT NULL,
+        status VARCHAR(32) NOT NULL DEFAULT 'queued',
+        input_json JSON NULL,
+        output_json JSON NULL,
+        error_message TEXT NULL,
+        started_at DATETIME NULL,
+        finished_at DATETIME NULL,
+        created_by BIGINT UNSIGNED NULL,
+        created_at DATETIME NOT NULL,
+        updated_at DATETIME NOT NULL,
+        INDEX idx_agent_task_project (project_id, status, created_at),
+        INDEX idx_agent_task_chapter (chapter_id, status),
+        CONSTRAINT fk_v2_agent_task_project FOREIGN KEY (project_id) REFERENCES bid_projects(id),
+        CONSTRAINT fk_v2_agent_task_chapter FOREIGN KEY (chapter_id) REFERENCES bid_chapters(id),
+        CONSTRAINT fk_v2_agent_task_parent FOREIGN KEY (parent_task_id) REFERENCES agent_task(id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS agent_task_event (
+        id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+        tenant_id BIGINT UNSIGNED NOT NULL DEFAULT 1,
+        task_id BIGINT UNSIGNED NOT NULL,
+        project_id BIGINT UNSIGNED NOT NULL,
+        chapter_id BIGINT UNSIGNED NULL,
+        event_type VARCHAR(64) NOT NULL,
+        event_index INT NOT NULL DEFAULT 0,
+        payload_json JSON NULL,
+        message TEXT NULL,
+        created_at DATETIME NOT NULL,
+        INDEX idx_agent_task_event_task (task_id, event_index),
+        INDEX idx_agent_task_event_project (project_id, created_at),
+        CONSTRAINT fk_v2_task_event_task FOREIGN KEY (task_id) REFERENCES agent_task(id),
+        CONSTRAINT fk_v2_task_event_project FOREIGN KEY (project_id) REFERENCES bid_projects(id),
+        CONSTRAINT fk_v2_task_event_chapter FOREIGN KEY (chapter_id) REFERENCES bid_chapters(id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS chapter_strategy (
+        id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+        tenant_id BIGINT UNSIGNED NOT NULL DEFAULT 1,
+        project_id BIGINT UNSIGNED NOT NULL,
+        chapter_id BIGINT UNSIGNED NOT NULL,
+        volume_type VARCHAR(64) NOT NULL DEFAULT 'technical',
+        target_words INT NULL,
+        writing_style VARCHAR(128) NULL,
+        forbidden_rules_json JSON NULL,
+        rag_policy_json JSON NULL,
+        status VARCHAR(32) NOT NULL DEFAULT 'active',
+        created_at DATETIME NOT NULL,
+        updated_at DATETIME NOT NULL,
+        UNIQUE KEY uk_chapter_strategy_chapter (chapter_id),
+        INDEX idx_chapter_strategy_project (project_id, volume_type),
+        CONSTRAINT fk_v2_chapter_strategy_project FOREIGN KEY (project_id) REFERENCES bid_projects(id),
+        CONSTRAINT fk_v2_chapter_strategy_chapter FOREIGN KEY (chapter_id) REFERENCES bid_chapters(id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS chapter_editor_docs (
+        id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+        tenant_id BIGINT UNSIGNED NOT NULL DEFAULT 1,
+        project_id BIGINT UNSIGNED NOT NULL,
+        chapter_id BIGINT UNSIGNED NOT NULL,
+        version_no INT NOT NULL,
+        markdown_content LONGTEXT NULL,
+        tiptap_json JSON NULL,
+        status VARCHAR(32) NOT NULL DEFAULT 'active',
+        created_by BIGINT UNSIGNED NULL,
+        created_at DATETIME NOT NULL,
+        updated_at DATETIME NOT NULL,
+        UNIQUE KEY uk_editor_doc_version (chapter_id, version_no),
+        INDEX idx_editor_doc_project (project_id, chapter_id),
+        CONSTRAINT fk_v2_editor_doc_project FOREIGN KEY (project_id) REFERENCES bid_projects(id),
+        CONSTRAINT fk_v2_editor_doc_chapter FOREIGN KEY (chapter_id) REFERENCES bid_chapters(id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS citation_record (
+        id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+        tenant_id BIGINT UNSIGNED NOT NULL DEFAULT 1,
+        project_id BIGINT UNSIGNED NOT NULL,
+        chapter_id BIGINT UNSIGNED NULL,
+        task_id BIGINT UNSIGNED NULL,
+        citation_key VARCHAR(64) NOT NULL,
+        source_type VARCHAR(64) NOT NULL,
+        source_file_id BIGINT UNSIGNED NULL,
+        chunk_id BIGINT UNSIGNED NULL,
+        chunk_uid VARCHAR(128) NULL,
+        source_title VARCHAR(500) NULL,
+        quote_text MEDIUMTEXT NULL,
+        usage_type VARCHAR(64) NOT NULL DEFAULT 'prompt_evidence',
+        metadata_json JSON NULL,
+        status VARCHAR(32) NOT NULL DEFAULT 'active',
+        created_at DATETIME NOT NULL,
+        updated_at DATETIME NOT NULL,
+        INDEX idx_citation_project (project_id, chapter_id),
+        INDEX idx_citation_task (task_id),
+        CONSTRAINT fk_v2_citation_project FOREIGN KEY (project_id) REFERENCES bid_projects(id),
+        CONSTRAINT fk_v2_citation_chapter FOREIGN KEY (chapter_id) REFERENCES bid_chapters(id),
+        CONSTRAINT fk_v2_citation_task FOREIGN KEY (task_id) REFERENCES agent_task(id),
+        CONSTRAINT fk_v2_citation_file FOREIGN KEY (source_file_id) REFERENCES document_files(id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS retrieval_log (
+        id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+        tenant_id BIGINT UNSIGNED NOT NULL DEFAULT 1,
+        project_id BIGINT UNSIGNED NOT NULL,
+        chapter_id BIGINT UNSIGNED NULL,
+        query_text TEXT NOT NULL,
+        source_mix_json JSON NULL,
+        result_count INT NOT NULL DEFAULT 0,
+        top_results_json JSON NULL,
+        degraded TINYINT(1) NOT NULL DEFAULT 0,
+        degraded_reason TEXT NULL,
+        fallback_used TINYINT(1) NOT NULL DEFAULT 0,
+        created_at DATETIME NOT NULL,
+        INDEX idx_retrieval_project (project_id, created_at),
+        INDEX idx_retrieval_chapter (chapter_id, created_at),
+        CONSTRAINT fk_retrieval_project FOREIGN KEY (project_id) REFERENCES bid_projects(id),
+        CONSTRAINT fk_retrieval_chapter FOREIGN KEY (chapter_id) REFERENCES bid_chapters(id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS image_asset (
+        id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+        tenant_id BIGINT UNSIGNED NOT NULL DEFAULT 1,
+        company_id BIGINT UNSIGNED NULL,
+        project_id BIGINT UNSIGNED NULL,
+        file_id BIGINT UNSIGNED NULL,
+        asset_title VARCHAR(500) NOT NULL,
+        image_type VARCHAR(64) NOT NULL,
+        source_type VARCHAR(64) NOT NULL DEFAULT 'enterprise_upload',
+        caption TEXT NULL,
+        searchable_text MEDIUMTEXT NULL,
+        tags_json JSON NULL,
+        allowed_for_bid TINYINT(1) NOT NULL DEFAULT 1,
+        synthetic TINYINT(1) NOT NULL DEFAULT 0,
+        review_status VARCHAR(32) NOT NULL DEFAULT 'pending',
+        metadata_json JSON NULL,
+        created_by BIGINT UNSIGNED NULL,
+        created_at DATETIME NOT NULL,
+        updated_at DATETIME NOT NULL,
+        deleted_at DATETIME NULL,
+        INDEX idx_image_asset_type (tenant_id, image_type, review_status),
+        INDEX idx_image_asset_project (project_id),
+        CONSTRAINT fk_image_asset_company FOREIGN KEY (company_id) REFERENCES companies(id),
+        CONSTRAINT fk_image_asset_project FOREIGN KEY (project_id) REFERENCES bid_projects(id),
+        CONSTRAINT fk_image_asset_file FOREIGN KEY (file_id) REFERENCES document_files(id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS image_plan (
+        id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+        tenant_id BIGINT UNSIGNED NOT NULL DEFAULT 1,
+        project_id BIGINT UNSIGNED NOT NULL,
+        chapter_id BIGINT UNSIGNED NOT NULL,
+        task_id BIGINT UNSIGNED NULL,
+        image_type VARCHAR(64) NOT NULL,
+        caption VARCHAR(500) NOT NULL,
+        placement VARCHAR(128) NULL,
+        source_priority_json JSON NULL,
+        query_text TEXT NULL,
+        prompt_hint TEXT NULL,
+        required_resolution VARCHAR(64) NULL,
+        status VARCHAR(32) NOT NULL DEFAULT 'pending_asset',
+        matched_assets_json JSON NULL,
+        risk_notes_json JSON NULL,
+        created_at DATETIME NOT NULL,
+        updated_at DATETIME NOT NULL,
+        INDEX idx_image_plan_chapter (chapter_id, status),
+        CONSTRAINT fk_image_plan_project FOREIGN KEY (project_id) REFERENCES bid_projects(id),
+        CONSTRAINT fk_image_plan_chapter FOREIGN KEY (chapter_id) REFERENCES bid_chapters(id),
+        CONSTRAINT fk_image_plan_task FOREIGN KEY (task_id) REFERENCES agent_task(id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS followup_question (
+        id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+        tenant_id BIGINT UNSIGNED NOT NULL DEFAULT 1,
+        project_id BIGINT UNSIGNED NOT NULL,
+        chapter_id BIGINT UNSIGNED NULL,
+        task_id BIGINT UNSIGNED NULL,
+        question_text TEXT NOT NULL,
+        reason_code VARCHAR(64) NOT NULL,
+        action_type VARCHAR(64) NOT NULL,
+        severity VARCHAR(32) NOT NULL DEFAULT 'warning',
+        status VARCHAR(32) NOT NULL DEFAULT 'pending',
+        metadata_json JSON NULL,
+        resolved_by BIGINT UNSIGNED NULL,
+        resolved_at DATETIME NULL,
+        created_at DATETIME NOT NULL,
+        updated_at DATETIME NOT NULL,
+        INDEX idx_followup_project (project_id, status, created_at),
+        INDEX idx_followup_chapter (chapter_id, status),
+        CONSTRAINT fk_followup_project FOREIGN KEY (project_id) REFERENCES bid_projects(id),
+        CONSTRAINT fk_followup_chapter FOREIGN KEY (chapter_id) REFERENCES bid_chapters(id),
+        CONSTRAINT fk_followup_task FOREIGN KEY (task_id) REFERENCES agent_task(id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     """,
     """

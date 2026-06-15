@@ -1,0 +1,48 @@
+<svg width="1440" height="900" viewBox="0 0 1440 900" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1440" height="900" fill="#F4F7FB"/>
+  <rect x="42" y="34" width="1356" height="832" rx="26" fill="#FFFFFF" stroke="#D9E2EF"/>
+  <rect x="42" y="34" width="236" height="832" rx="26" fill="#152033"/>
+  <rect x="236" y="34" width="42" height="832" fill="#152033"/>
+  <text x="82" y="92" font-family="Arial, sans-serif" font-size="24" font-weight="700" fill="#FFFFFF">管理后台</text>
+  <rect x="74" y="142" width="166" height="44" rx="10" fill="#2864D9"/>
+  <text x="104" y="170" font-family="Arial, sans-serif" font-size="17" font-weight="700" fill="#FFFFFF">项目管理</text>
+  <text x="104" y="230" font-family="Arial, sans-serif" font-size="17" fill="#B9C7DA">知识库</text>
+  <text x="104" y="286" font-family="Arial, sans-serif" font-size="17" fill="#B9C7DA">模型配置</text>
+  <text x="104" y="342" font-family="Arial, sans-serif" font-size="17" fill="#B9C7DA">系统设置</text>
+
+  <text x="330" y="92" font-family="Arial, sans-serif" font-size="30" font-weight="700" fill="#172033">项目与知识库概览</text>
+  <text x="330" y="128" font-family="Arial, sans-serif" font-size="17" fill="#667085">统一管理脱敏项目、企业资料、历史标书与模型服务</text>
+
+  <rect x="330" y="172" width="250" height="126" rx="16" fill="#F8FAFD" stroke="#DDE6F2"/>
+  <text x="360" y="216" font-family="Arial, sans-serif" font-size="16" fill="#667085">项目数</text>
+  <text x="360" y="266" font-family="Arial, sans-serif" font-size="42" font-weight="700" fill="#172033">24</text>
+  <rect x="620" y="172" width="250" height="126" rx="16" fill="#F8FAFD" stroke="#DDE6F2"/>
+  <text x="650" y="216" font-family="Arial, sans-serif" font-size="16" fill="#667085">知识库文件</text>
+  <text x="650" y="266" font-family="Arial, sans-serif" font-size="42" font-weight="700" fill="#172033">186</text>
+  <rect x="910" y="172" width="250" height="126" rx="16" fill="#F8FAFD" stroke="#DDE6F2"/>
+  <text x="940" y="216" font-family="Arial, sans-serif" font-size="16" fill="#667085">生成章节</text>
+  <text x="940" y="266" font-family="Arial, sans-serif" font-size="42" font-weight="700" fill="#172033">342</text>
+
+  <rect x="330" y="342" width="1006" height="410" rx="18" fill="#FFFFFF" stroke="#DDE6F2"/>
+  <text x="364" y="388" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="#172033">最近项目</text>
+  <rect x="364" y="420" width="914" height="1" fill="#E6ECF5"/>
+  <text x="364" y="462" font-family="Arial, sans-serif" font-size="15" font-weight="700" fill="#667085">项目名称</text>
+  <text x="638" y="462" font-family="Arial, sans-serif" font-size="15" font-weight="700" fill="#667085">招标文件</text>
+  <text x="930" y="462" font-family="Arial, sans-serif" font-size="15" font-weight="700" fill="#667085">状态</text>
+  <text x="1100" y="462" font-family="Arial, sans-serif" font-size="15" font-weight="700" fill="#667085">更新时间</text>
+  <rect x="364" y="486" width="914" height="1" fill="#E6ECF5"/>
+  <text x="364" y="532" font-family="Arial, sans-serif" font-size="17" fill="#263244">脱敏投标项目 A</text>
+  <text x="638" y="532" font-family="Arial, sans-serif" font-size="17" fill="#667085">████████████████</text>
+  <text x="930" y="532" font-family="Arial, sans-serif" font-size="17" fill="#2864D9">生成中</text>
+  <text x="1100" y="532" font-family="Arial, sans-serif" font-size="17" fill="#667085">2026-06-15</text>
+  <rect x="364" y="562" width="914" height="1" fill="#E6ECF5"/>
+  <text x="364" y="608" font-family="Arial, sans-serif" font-size="17" fill="#263244">脱敏投标项目 B</text>
+  <text x="638" y="608" font-family="Arial, sans-serif" font-size="17" fill="#667085">████████████████</text>
+  <text x="930" y="608" font-family="Arial, sans-serif" font-size="17" fill="#29A66A">已完成</text>
+  <text x="1100" y="608" font-family="Arial, sans-serif" font-size="17" fill="#667085">2026-06-14</text>
+  <rect x="364" y="638" width="914" height="1" fill="#E6ECF5"/>
+  <text x="364" y="684" font-family="Arial, sans-serif" font-size="17" fill="#263244">脱敏投标项目 C</text>
+  <text x="638" y="684" font-family="Arial, sans-serif" font-size="17" fill="#667085">████████████████</text>
+  <text x="930" y="684" font-family="Arial, sans-serif" font-size="17" fill="#B7791F">待确认</text>
+  <text x="1100" y="684" font-family="Arial, sans-serif" font-size="17" fill="#667085">2026-06-13</text>
+</svg>
