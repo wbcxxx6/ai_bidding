@@ -1,76 +1,79 @@
 <template>
   <div class="workbench">
-    <aside class="chapter-panel">
-      <section class="overview-card">
-        <div class="panel-head">
-          <div>
-            <p class="eyebrow">V2 P0</p>
-            <h3>项目总览</h3>
-          </div>
-          <el-tag size="small" :type="overviewTagType">{{ workbench.project?.projectStatus || 'draft' }}</el-tag>
+    <section class="overview-card">
+      <div class="overview-identity">
+        <div>
+          <p class="eyebrow">AI 工作台</p>
+          <h3>项目总览</h3>
         </div>
-        <div class="overview-progress">
-          <div class="progress-copy">
-            <strong>{{ workbench.chapterStatus?.generated || 0 }}/{{ workbench.chapterStatus?.total || 0 }}</strong>
-            <span>章节已形成正文</span>
-          </div>
-          <el-progress :percentage="Number(workbench.chapterStatus?.progressPercent || 0)" :stroke-width="10" />
+        <el-tag size="small" :type="overviewTagType">{{ workbench.project?.projectStatus || 'draft' }}</el-tag>
+      </div>
+      <div class="overview-progress">
+        <div class="progress-ring" :style="{ '--progress': `${Number(workbench.chapterStatus?.progressPercent || 0) * 3.6}deg` }">
+          <span>{{ Math.round(Number(workbench.chapterStatus?.progressPercent || 0)) }}%</span>
         </div>
-        <div class="overview-metrics">
-          <article>
-            <strong>{{ workbench.stats?.citationCount || 0 }}</strong>
-            <span>引用</span>
-          </article>
-          <article>
-            <strong>{{ workbench.stats?.imagePlanCount || 0 }}</strong>
-            <span>配图计划</span>
-          </article>
-          <article>
-            <strong>{{ workbench.stats?.pendingFollowupCount || 0 }}</strong>
-            <span>待补资料</span>
-          </article>
-          <article>
-            <strong>{{ workbench.stats?.pendingImagePlanCount || 0 }}</strong>
-            <span>待补图片</span>
-          </article>
+        <div class="progress-copy">
+          <strong>{{ workbench.chapterStatus?.generated || 0 }}/{{ workbench.chapterStatus?.total || 0 }}</strong>
+          <span>章节已形成正文</span>
+          <el-progress :percentage="Number(workbench.chapterStatus?.progressPercent || 0)" :stroke-width="8" :show-text="false" />
         </div>
-        <div v-if="workbench.volumes?.length" class="volume-pills">
-          <span v-for="volume in workbench.volumes" :key="volume.volumeType" class="volume-pill">
-            {{ volumeName(volume.volumeType) }} {{ volume.generatedCount }}/{{ volume.chapterCount }}
-          </span>
-        </div>
-        <div class="overview-actions">
-          <el-button
-            type="primary"
-            :icon="VideoPlay"
-            :disabled="generating || projectRunning || !nextPendingChapter"
-            :loading="projectRunning"
-            @click="generateWholeProject"
-          >
-            批量顺序生成整本
-          </el-button>
-          <el-button
-            plain
-            :icon="VideoPlay"
-            :disabled="generating || projectRunning || !nextPendingChapter"
-            @click="generateNextPendingChapter"
-          >
-            继续生成未完成章节
-          </el-button>
-          <el-button
-            type="success"
-            plain
-            :icon="DocumentChecked"
-            :disabled="generating || projectRunning || exportingProject || !canExportProject"
-            :loading="exportingProject"
-            @click="exportWholeProject"
-          >
-            导出整本
-          </el-button>
-          <el-button :icon="Refresh" :loading="loadingChapters" @click="loadWorkbench">刷新总览</el-button>
-        </div>
-      </section>
+      </div>
+      <div class="overview-metrics">
+        <article>
+          <strong>{{ workbench.stats?.citationCount || 0 }}</strong>
+          <span>引用</span>
+        </article>
+        <article>
+          <strong>{{ workbench.stats?.imagePlanCount || 0 }}</strong>
+          <span>配图计划</span>
+        </article>
+        <article>
+          <strong>{{ workbench.stats?.pendingFollowupCount || 0 }}</strong>
+          <span>待补资料</span>
+        </article>
+        <article>
+          <strong>{{ workbench.stats?.pendingImagePlanCount || 0 }}</strong>
+          <span>待补图片</span>
+        </article>
+      </div>
+      <div class="overview-actions">
+        <el-button
+          type="primary"
+          :icon="VideoPlay"
+          :disabled="generating || projectRunning || !nextPendingChapter"
+          :loading="projectRunning"
+          @click="generateWholeProject"
+        >
+          批量顺序生成整本
+        </el-button>
+        <el-button
+          plain
+          :icon="VideoPlay"
+          :disabled="generating || projectRunning || !nextPendingChapter"
+          @click="generateNextPendingChapter"
+        >
+          继续生成未完成章节
+        </el-button>
+        <el-button
+          type="success"
+          plain
+          :icon="DocumentChecked"
+          :disabled="generating || projectRunning || exportingProject || !canExportProject"
+          :loading="exportingProject"
+          @click="exportWholeProject"
+        >
+          导出整本
+        </el-button>
+        <el-button :icon="Refresh" :loading="loadingChapters" @click="loadWorkbench">刷新总览</el-button>
+      </div>
+      <div v-if="workbench.volumes?.length" class="volume-pills">
+        <span v-for="volume in workbench.volumes" :key="volume.volumeType" class="volume-pill">
+          {{ volumeName(volume.volumeType) }} {{ volume.generatedCount }}/{{ volume.chapterCount }}
+        </span>
+      </div>
+    </section>
 
+    <aside class="chapter-panel">
       <div class="panel-head">
         <div>
           <p class="eyebrow">章节导航</p>
@@ -116,13 +119,6 @@
           <p class="eyebrow">{{ selectedChapter ? `章节 #${selectedChapter.id}` : '未选择章节' }}</p>
           <h2>{{ selectedChapter?.title || '选择章节开始生成' }}</h2>
         </div>
-        <div class="toolbar-actions">
-          <el-button :icon="Refresh" :disabled="!selectedChapter || generating" @click="reloadEditor">刷新</el-button>
-          <el-button :icon="DocumentChecked" :disabled="!selectedChapter || saving" :loading="saving" @click="saveDoc">保存</el-button>
-          <el-button type="primary" :icon="VideoPlay" :disabled="!selectedChapter || generating" :loading="generating" @click="generateChapter">
-            生成本章
-          </el-button>
-        </div>
       </div>
 
       <el-alert
@@ -138,6 +134,52 @@
         <el-empty description="从左侧选择一个章节，进入 AI 流式写作" />
       </div>
       <div v-else class="editor-shell">
+        <div class="floating-actions">
+          <el-button :icon="Refresh" :disabled="!selectedChapter || generating" @click="reloadEditor">刷新</el-button>
+          <el-button :icon="DocumentChecked" :disabled="!selectedChapter || saving" :loading="saving" @click="saveDoc">保存</el-button>
+          <el-button type="primary" :icon="VideoPlay" :disabled="!selectedChapter || generating" :loading="generating" @click="generateChapter">
+            生成本章
+          </el-button>
+        </div>
+        <div
+          v-if="selectionToolbar.visible"
+          class="selection-toolbar"
+          :style="{ left: `${selectionToolbar.x}px`, top: `${selectionToolbar.y}px` }"
+        >
+          <el-button size="small" :icon="EditPen" @mousedown.prevent @click="openInlineRewrite">重写</el-button>
+        </div>
+        <div
+          v-if="inlineRewriteVisible"
+          class="inline-rewrite-card"
+          :style="{ left: `${selectionToolbar.x}px`, top: `${selectionToolbar.y + 38}px` }"
+          @mousedown.stop
+        >
+          <div class="inline-rewrite-head">
+            <strong>改写选区</strong>
+            <el-button link size="small" @click="closeInlineRewrite">关闭</el-button>
+          </div>
+          <el-input
+            v-model="rewriteInstruction"
+            type="textarea"
+            :rows="3"
+            placeholder="输入改写要求，例如更正式、扩写、压缩、突出响应点"
+          />
+          <el-input
+            v-if="rewriteSuggestion"
+            v-model="rewriteSuggestion"
+            class="rewrite-suggestion"
+            type="textarea"
+            :rows="5"
+          />
+          <div class="inline-rewrite-actions">
+            <el-button size="small" :loading="rewriting" :disabled="!rewriteInstruction.trim()" @click="createRewriteSuggestion">
+              生成建议
+            </el-button>
+            <el-button size="small" type="primary" :disabled="!rewriteSuggestion" :loading="saving" @click="applyRewriteSuggestion">
+              替换并保存
+            </el-button>
+          </div>
+        </div>
         <EditorContent v-if="editor" :editor="editor" class="tiptap-surface" />
       </div>
     </section>
@@ -218,6 +260,7 @@
         </div>
       </section>
     </aside>
+
   </div>
 </template>
 
@@ -225,7 +268,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { DocumentChecked, Refresh, VideoPlay } from '@element-plus/icons-vue'
+import { DocumentChecked, EditPen, Refresh, VideoPlay } from '@element-plus/icons-vue'
 import { EditorContent, useEditor } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
 import { Node } from '@tiptap/core'
@@ -250,6 +293,12 @@ const lastMarkdown = ref('')
 const chapterFilter = ref('all')
 const projectRunning = ref(false)
 const exportingProject = ref(false)
+const rewriting = ref(false)
+const inlineRewriteVisible = ref(false)
+const rewriteInstruction = ref('')
+const rewriteSuggestion = ref('')
+const rewriteSelection = ref({ from: null, to: null, text: '' })
+const selectionToolbar = ref({ visible: false, x: 0, y: 0 })
 const workbench = ref({
   project: null,
   chapterStatus: { total: 0, generated: 0, pending: 0, progressPercent: 0 },
@@ -283,6 +332,12 @@ const MarkdownTable = Node.create({
 const editor = useEditor({
   extensions: [StarterKit, MarkdownTable],
   content: '',
+  onSelectionUpdate: ({ editor: activeEditor }) => updateSelectionToolbar(activeEditor),
+  onBlur: () => {
+    if (!inlineRewriteVisible.value) {
+      selectionToolbar.value.visible = false
+    }
+  },
   editorProps: {
     attributes: {
       class: 'tiptap-content',
@@ -360,6 +415,108 @@ const canExportProject = computed(() => {
 function setEditorMarkdown(markdown) {
   lastMarkdown.value = markdown || ''
   renderEditorMarkdown()
+}
+
+function getSelectedText() {
+  if (!editor.value) return { from: null, to: null, text: '' }
+  const { from, to, empty } = editor.value.state.selection
+  if (empty || from === to) return { from, to, text: '' }
+  const text = editor.value.state.doc.textBetween(from, to, '\n\n').trim()
+  const contextBefore = editor.value.state.doc.textBetween(Math.max(0, from - 700), from, '\n\n')
+  const contextAfter = editor.value.state.doc.textBetween(to, Math.min(editor.value.state.doc.content.size, to + 700), '\n\n')
+  return { from, to, text, contextBefore, contextAfter }
+}
+
+function updateSelectionToolbar(activeEditor = editor.value) {
+  if (!activeEditor || !selectedChapter.value || generating.value) {
+    selectionToolbar.value.visible = false
+    return
+  }
+  const { from, to, empty } = activeEditor.state.selection
+  if (empty || from === to) {
+    if (!inlineRewriteVisible.value) {
+      selectionToolbar.value.visible = false
+    }
+    return
+  }
+  const text = activeEditor.state.doc.textBetween(from, to, '\n\n').trim()
+  if (!text) {
+    selectionToolbar.value.visible = false
+    return
+  }
+  const start = activeEditor.view.coordsAtPos(from)
+  const shell = activeEditor.view.dom.closest('.editor-shell')
+  const shellRect = shell?.getBoundingClientRect()
+  if (!shellRect) return
+  const x = Math.max(8, Math.min(start.left - shellRect.left, shellRect.width - 400))
+  selectionToolbar.value = {
+    visible: true,
+    x,
+    y: Math.max(8, start.top - shellRect.top - 42 + (shell?.scrollTop || 0)),
+  }
+  if (!inlineRewriteVisible.value) {
+    rewriteSelection.value = getSelectedText()
+  }
+}
+
+function openInlineRewrite() {
+  const selection = getSelectedText()
+  if (!selection.text) {
+    ElMessage.warning('请先在正文中选中需要改写的一段内容')
+    return
+  }
+  rewriteSelection.value = selection
+  rewriteInstruction.value = ''
+  rewriteSuggestion.value = ''
+  inlineRewriteVisible.value = true
+  selectionToolbar.value.visible = true
+}
+
+function closeInlineRewrite() {
+  inlineRewriteVisible.value = false
+  rewriteInstruction.value = ''
+  rewriteSuggestion.value = ''
+  selectionToolbar.value.visible = false
+}
+
+async function createRewriteSuggestion() {
+  if (!selectedChapter.value || !rewriteSelection.value.text || !rewriteInstruction.value.trim()) return
+  rewriting.value = true
+  errorText.value = ''
+  try {
+    const { data } = await v2Api.rewriteSelection(selectedChapter.value.id, {
+      selectedText: rewriteSelection.value.text,
+      instruction: rewriteInstruction.value.trim(),
+      contextBefore: rewriteSelection.value.contextBefore || '',
+      contextAfter: rewriteSelection.value.contextAfter || '',
+    })
+    rewriteSuggestion.value = data.newText || ''
+    if (!rewriteSuggestion.value) {
+      ElMessage.warning('未生成可替换内容，请调整改写要求后重试')
+    }
+  } catch (error) {
+    errorText.value = error.response?.data?.error || '改写建议生成失败'
+  } finally {
+    rewriting.value = false
+  }
+}
+
+async function applyRewriteSuggestion() {
+  if (!editor.value || !rewriteSuggestion.value || rewriteSelection.value.from == null || rewriteSelection.value.to == null) return
+  const { from, to, text } = rewriteSelection.value
+  const currentText = editor.value.state.doc.textBetween(from, to, '\n\n').trim()
+  if (currentText !== text) {
+    ElMessage.warning('选区内容已经变化，请重新选择后再替换')
+    return
+  }
+  editor.value
+    .chain()
+    .focus()
+    .insertContentAt({ from, to }, rewriteSuggestion.value)
+    .run()
+  closeInlineRewrite()
+  await saveDoc({ silent: true })
+  ElMessage.success('选中内容已替换并保存')
 }
 
 function renderEditorMarkdown() {
@@ -740,7 +897,7 @@ async function loadFollowups() {
   }
 }
 
-async function saveDoc() {
+async function saveDoc(options = {}) {
   if (!selectedChapter.value || !editor.value) return
   saving.value = true
   try {
@@ -748,7 +905,9 @@ async function saveDoc() {
       markdown: editorJsonToMarkdown(editor.value.getJSON()),
       tiptapJson: editor.value.getJSON(),
     })
-    ElMessage.success('正文已保存')
+    if (!options.silent) {
+      ElMessage.success('正文已保存')
+    }
     await loadChapters()
   } catch (error) {
     errorText.value = error.response?.data?.error || '保存失败'
@@ -929,8 +1088,11 @@ onBeforeUnmount(() => {
 .workbench {
   display: grid;
   grid-template-columns: 260px minmax(420px, 1fr) 320px;
+  grid-template-rows: auto minmax(640px, 1fr);
+  align-items: start;
   gap: 16px;
   min-height: calc(100vh - 112px);
+  overflow: hidden;
 }
 
 .chapter-panel,
@@ -943,12 +1105,15 @@ onBeforeUnmount(() => {
 
 .chapter-panel,
 .inspector-panel {
+  height: 100%;
+  min-height: 0;
   padding: 14px;
   overflow: hidden;
 }
 
 .panel-head,
 .toolbar,
+.overview-identity,
 .section-title {
   display: flex;
   align-items: center;
@@ -958,6 +1123,7 @@ onBeforeUnmount(() => {
 
 .panel-head h3,
 .section-title h3,
+.overview-identity h3,
 .toolbar h2 {
   margin: 0;
   color: #111827;
@@ -976,84 +1142,148 @@ onBeforeUnmount(() => {
 }
 
 .overview-card {
-  margin-bottom: 16px;
-  padding: 14px;
-  background: linear-gradient(180deg, #f8fbff 0%, #fdfefe 100%);
-  border: 1px solid #dbeafe;
-  border-radius: 12px;
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(150px, 190px) minmax(240px, 340px) minmax(320px, 1fr) auto;
+  align-items: center;
+  column-gap: 18px;
+  row-gap: 8px;
+  padding: 12px 16px;
+  background: #fff;
+  border: 1px solid #dfe7f2;
+  border-radius: 10px;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, .045);
+}
+
+.overview-identity {
+  justify-content: flex-start;
+  padding-right: 12px;
+  border-right: 1px solid #e5eaf2;
 }
 
 .overview-progress {
-  margin-top: 14px;
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  margin-top: 0;
+}
+
+.progress-ring {
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  border-radius: 999px;
+  background:
+    conic-gradient(#2f7eea var(--progress), #e9eef6 0),
+    #fff;
+}
+
+.progress-ring span {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  color: #111827;
+  font-size: 13px;
+  font-weight: 750;
+  background: #fff;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px #e5eaf2;
 }
 
 .progress-copy {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  margin-bottom: 8px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 6px;
   color: #475569;
   font-size: 13px;
 }
 
 .progress-copy strong {
   color: #0f172a;
-  font-size: 22px;
+  font-size: 24px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.progress-copy .el-progress {
+  grid-column: 1 / -1;
 }
 
 .overview-metrics {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  margin-top: 14px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 0;
 }
 
 .overview-metrics article {
-  padding: 10px;
-  background: rgba(255, 255, 255, .78);
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 2px;
+  min-height: 48px;
+  padding: 8px 10px;
+  background: #f8fafc;
+  border: 1px solid #edf2f7;
+  border-radius: 8px;
 }
 
 .overview-metrics strong,
 .overview-metrics span {
-  display: block;
+  display: inline;
 }
 
 .overview-metrics strong {
   color: #0f172a;
-  font-size: 18px;
+  font-size: 20px;
+  line-height: 1;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
 .overview-metrics span {
-  margin-top: 4px;
   color: #64748b;
   font-size: 12px;
 }
 
 .volume-pills {
+  grid-column: 2 / 4;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 14px;
+  margin-top: 0;
 }
 
 .volume-pill {
   display: inline-flex;
   align-items: center;
-  padding: 5px 10px;
+  padding: 4px 9px;
   color: #1d4ed8;
   font-size: 12px;
-  background: #eff6ff;
+  background: rgba(219, 234, 254, .82);
   border-radius: 999px;
 }
 
 .overview-actions {
+  grid-column: 4;
+  grid-row: 1 / span 2;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 14px;
+  justify-content: flex-end;
+  align-content: center;
+  margin-top: 0;
+  max-width: 430px;
+}
+
+.overview-actions :deep(.el-button) {
+  min-height: 32px;
+  margin-left: 0;
+  border-radius: 7px;
 }
 
 .chapter-filter {
@@ -1065,7 +1295,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 8px;
   margin-top: 14px;
-  max-height: calc(100vh - 470px);
+  max-height: calc(100% - 58px);
   overflow-y: auto;
 }
 
@@ -1125,10 +1355,16 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  height: 100%;
+  min-height: 0;
 }
 
 .toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
   padding: 14px 16px;
+  background: #fff;
   border-bottom: 1px solid #e5e7eb;
 }
 
@@ -1150,10 +1386,74 @@ onBeforeUnmount(() => {
 }
 
 .editor-shell {
+  position: relative;
   flex: 1;
-  min-height: 520px;
+  min-height: 0;
   padding: 16px;
   overflow: auto;
+}
+
+.floating-actions {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: -16px -16px 12px;
+  padding: 10px 16px;
+  background: rgba(255, 255, 255, .94);
+  border-bottom: 1px solid #e5e7eb;
+  backdrop-filter: blur(8px);
+}
+
+.selection-toolbar {
+  position: absolute;
+  z-index: 8;
+  padding: 4px;
+  background: #111827;
+  border-radius: 8px;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, .22);
+}
+
+.selection-toolbar :deep(.el-button) {
+  color: #fff;
+  background: transparent;
+  border-color: transparent;
+}
+
+.inline-rewrite-card {
+  position: absolute;
+  z-index: 9;
+  width: min(380px, calc(100% - 32px));
+  padding: 12px;
+  background: #fff;
+  border: 1px solid #dbe4f0;
+  border-radius: 8px;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, .18);
+}
+
+.inline-rewrite-head,
+.inline-rewrite-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.inline-rewrite-head {
+  margin-bottom: 8px;
+  color: #111827;
+}
+
+.rewrite-suggestion {
+  margin-top: 8px;
+}
+
+.inline-rewrite-actions {
+  justify-content: flex-end;
+  margin-top: 10px;
 }
 
 .tiptap-surface {
@@ -1303,9 +1603,11 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  overflow-y: auto;
 }
 
 .inspector-section {
+  flex: 0 0 auto;
   min-height: 0;
   padding-bottom: 14px;
   border-bottom: 1px solid #edf2f7;
@@ -1318,8 +1620,10 @@ onBeforeUnmount(() => {
 .muted-empty {
   margin-top: 12px;
   padding: 14px;
+  min-height: 44px;
   color: #6b7280;
   font-size: 13px;
+  line-height: 1.6;
   background: #f9fafb;
   border-radius: 8px;
 }
@@ -1350,7 +1654,9 @@ onBeforeUnmount(() => {
   margin: 4px 0 0;
   color: #4b5563;
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.65;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .citation-list,
@@ -1360,7 +1666,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 10px;
   margin-top: 12px;
-  max-height: 300px;
+  max-height: 220px;
   overflow-y: auto;
 }
 
@@ -1399,9 +1705,48 @@ onBeforeUnmount(() => {
   font-size: 12px;
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 1180px) {
+  .workbench {
+    grid-template-columns: 220px minmax(360px, 1fr);
+    height: auto;
+    overflow: visible;
+  }
+
+  .overview-card {
+    grid-template-columns: 1fr;
+  }
+
+  .overview-actions,
+  .volume-pills {
+    grid-column: auto;
+    grid-row: auto;
+    justify-content: flex-start;
+    max-width: none;
+  }
+
+  .overview-identity {
+    border-right: none;
+    padding-right: 0;
+  }
+
+  .inspector-panel {
+    grid-column: 1 / -1;
+    height: auto;
+  }
+}
+
+@media (max-width: 860px) {
   .workbench {
     grid-template-columns: 1fr;
+  }
+
+  .chapter-panel,
+  .inspector-panel {
+    height: auto;
+  }
+
+  .overview-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .chapter-list,

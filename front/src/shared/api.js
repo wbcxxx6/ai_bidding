@@ -90,6 +90,7 @@ export const v2Api = {
   listCitations: (chapterId) => http.get(`/v2/chapters/${chapterId}/citations`),
   listImagePlans: (chapterId) => http.get(`/v2/chapters/${chapterId}/image-plans`),
   listFollowups: (chapterId) => http.get(`/v2/chapters/${chapterId}/followups`),
+  rewriteSelection: (chapterId, data) => http.post(`/v2/chapters/${chapterId}/selection-rewrite`, data),
   listImageAssets: (params = {}) => http.get('/v2/images/assets', { params }),
   createImageAsset: (data) => http.post('/v2/images/assets', { ...data, userId: getUserId() }),
   generateSectionImage: (data) => http.post('/v2/images/generate', { ...data, userId: getUserId() }),

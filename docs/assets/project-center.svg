@@ -1,0 +1,51 @@
+<svg width="1440" height="900" viewBox="0 0 1440 900" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1440" height="900" fill="#F4F7FB"/>
+  <rect x="44" y="38" width="1352" height="824" rx="28" fill="#FFFFFF" stroke="#D9E2EF"/>
+  <rect x="44" y="38" width="1352" height="74" rx="28" fill="#152033"/>
+  <rect x="44" y="84" width="1352" height="28" fill="#152033"/>
+  <text x="86" y="84" font-family="Arial, sans-serif" font-size="28" font-weight="700" fill="#FFFFFF">AI 招投标文档生成系统</text>
+  <text x="1185" y="82" font-family="Arial, sans-serif" font-size="18" fill="#C9D5E8">用户工作台</text>
+
+  <rect x="82" y="146" width="1276" height="134" rx="18" fill="#F8FAFD" stroke="#DDE6F2"/>
+  <text x="116" y="190" font-family="Arial, sans-serif" font-size="30" font-weight="700" fill="#172033">项目中心</text>
+  <text x="116" y="226" font-family="Arial, sans-serif" font-size="18" fill="#627089">集中管理投标项目、招标文件、解析进度和生成结果</text>
+  <rect x="1040" y="174" width="210" height="54" rx="12" fill="#2864D9"/>
+  <text x="1092" y="208" font-family="Arial, sans-serif" font-size="20" font-weight="700" fill="#FFFFFF">新建项目</text>
+
+  <rect x="82" y="310" width="396" height="204" rx="16" fill="#FFFFFF" stroke="#DDE6F2"/>
+  <rect x="112" y="340" width="92" height="30" rx="15" fill="#E8F1FF"/>
+  <text x="132" y="361" font-family="Arial, sans-serif" font-size="15" font-weight="700" fill="#2864D9">生成中</text>
+  <text x="112" y="405" font-family="Arial, sans-serif" font-size="23" font-weight="700" fill="#172033">脱敏投标项目 A</text>
+  <text x="112" y="440" font-family="Arial, sans-serif" font-size="16" fill="#718096">招标文件：████████████████</text>
+  <rect x="112" y="474" width="320" height="10" rx="5" fill="#E8EEF7"/>
+  <rect x="112" y="474" width="224" height="10" rx="5" fill="#3C7DF0"/>
+
+  <rect x="522" y="310" width="396" height="204" rx="16" fill="#FFFFFF" stroke="#DDE6F2"/>
+  <rect x="552" y="340" width="92" height="30" rx="15" fill="#E9F7EF"/>
+  <text x="572" y="361" font-family="Arial, sans-serif" font-size="15" font-weight="700" fill="#1D8E54">已完成</text>
+  <text x="552" y="405" font-family="Arial, sans-serif" font-size="23" font-weight="700" fill="#172033">脱敏投标项目 B</text>
+  <text x="552" y="440" font-family="Arial, sans-serif" font-size="16" fill="#718096">招标文件：████████████████</text>
+  <rect x="552" y="474" width="320" height="10" rx="5" fill="#E8EEF7"/>
+  <rect x="552" y="474" width="320" height="10" rx="5" fill="#29A66A"/>
+
+  <rect x="962" y="310" width="396" height="204" rx="16" fill="#FFFFFF" stroke="#DDE6F2"/>
+  <rect x="992" y="340" width="92" height="30" rx="15" fill="#FFF3DD"/>
+  <text x="1012" y="361" font-family="Arial, sans-serif" font-size="15" font-weight="700" fill="#B7791F">待确认</text>
+  <text x="992" y="405" font-family="Arial, sans-serif" font-size="23" font-weight="700" fill="#172033">脱敏投标项目 C</text>
+  <text x="992" y="440" font-family="Arial, sans-serif" font-size="16" fill="#718096">招标文件：████████████████</text>
+  <rect x="992" y="474" width="320" height="10" rx="5" fill="#E8EEF7"/>
+  <rect x="992" y="474" width="148" height="10" rx="5" fill="#F59E0B"/>
+
+  <rect x="82" y="558" width="1276" height="236" rx="18" fill="#FFFFFF" stroke="#DDE6F2"/>
+  <text x="116" y="604" font-family="Arial, sans-serif" font-size="24" font-weight="700" fill="#172033">最近任务</text>
+  <rect x="116" y="636" width="1190" height="1" fill="#E6ECF5"/>
+  <text x="116" y="682" font-family="Arial, sans-serif" font-size="18" fill="#263244">文件解析</text>
+  <text x="468" y="682" font-family="Arial, sans-serif" font-size="18" fill="#667085">脱敏项目 A</text>
+  <text x="802" y="682" font-family="Arial, sans-serif" font-size="18" fill="#667085">已提取评分点与章节结构</text>
+  <text x="1194" y="682" font-family="Arial, sans-serif" font-size="18" fill="#29A66A">完成</text>
+  <rect x="116" y="712" width="1190" height="1" fill="#E6ECF5"/>
+  <text x="116" y="758" font-family="Arial, sans-serif" font-size="18" fill="#263244">章节生成</text>
+  <text x="468" y="758" font-family="Arial, sans-serif" font-size="18" fill="#667085">脱敏项目 B</text>
+  <text x="802" y="758" font-family="Arial, sans-serif" font-size="18" fill="#667085">正文生成后进入 AI 工作台</text>
+  <text x="1194" y="758" font-family="Arial, sans-serif" font-size="18" fill="#2864D9">处理中</text>
+</svg>

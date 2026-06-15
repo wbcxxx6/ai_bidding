@@ -1,15 +1,29 @@
 <template>
   <div>
     <el-steps :active="step" finish-status="success" align-center class="gen-steps">
-      <el-step title="预分析" />
-      <el-step title="确认事实" />
-      <el-step title="格式要求" />
-      <el-step title="设计目录" />
-      <el-step title="生成文档" />
+      <el-step
+        v-for="(item, index) in stepItems"
+        :key="item.title"
+        :title="item.title"
+        :class="{ clickable: canVisitStep(index) }"
+        @click="goStep(index)"
+      />
     </el-steps>
+    <el-alert
+      v-if="restoreNotice"
+      class="restore-notice"
+      type="info"
+      show-icon
+      :closable="true"
+      :title="restoreNotice"
+      @close="restoreNotice = ''"
+    />
 
     <div class="step-content" v-if="step === 0">
-      <el-button type="primary" :loading="loading" @click="runPreAnalysis">开始预分析</el-button>
+      <el-button type="primary" :loading="loading" @click="runPreAnalysis">
+        {{ maxStepReached >= 1 ? '重新预分析' : '开始预分析' }}
+      </el-button>
+      <el-button v-if="canVisitStep(1)" class="ml8" @click="goStep(1)">回到确认事实</el-button>
       <p class="hint">系统将解析招标文件，提取项目事实、格式要求和评分标准</p>
     </div>
 
@@ -28,7 +42,11 @@
           </template>
         </el-table-column>
       </el-table>
-      <el-button type="primary" class="mt16" @click="confirmFacts" :loading="loading">确认事实并继续</el-button>
+      <div class="step-actions">
+        <el-button @click="goStep(0)">上一步</el-button>
+        <el-button v-if="canVisitStep(2)" @click="goStep(2)">回到格式要求</el-button>
+        <el-button type="primary" @click="confirmFacts" :loading="loading">保存事实并继续</el-button>
+      </div>
     </div>
 
     <div class="step-content" v-if="step === 2">
@@ -119,11 +137,21 @@
       </el-card>
       </template>
 
-      <el-button type="primary" class="mt16" @click="confirmFormat">确认格式要求，设计目录</el-button>
+      <div class="step-actions">
+        <el-button @click="goStep(1)">上一步</el-button>
+        <el-button v-if="canVisitStep(3)" @click="goStep(3)">回到目录设计</el-button>
+        <el-button type="primary" @click="confirmFormat">保存格式要求，设计目录</el-button>
+      </div>
     </div>
 
     <div class="step-content" v-if="step === 3">
-      <el-button type="primary" :loading="loading" @click="runChapterDesign">生成目录结构</el-button>
+      <div class="step-actions top-actions">
+        <el-button @click="goStep(2)">上一步</el-button>
+        <el-button v-if="canVisitStep(4)" @click="goStep(4)">回到生成文档</el-button>
+        <el-button type="primary" :loading="loading" @click="runChapterDesign">
+          {{ outline?.chapters?.length ? '重新生成目录结构' : '生成目录结构' }}
+        </el-button>
+      </div>
       <div v-if="outline" class="outline-preview">
         <h4>目录预览（{{ outlineTree.length }} 个一级章节）</h4>
         <el-alert
@@ -155,7 +183,7 @@
           type="primary"
           class="mt16"
           :disabled="outline.needsReview || hasTemplateIssues || !outline.chapters?.length"
-          @click="step = 4"
+          @click="confirmOutline"
         >
           确认目录，开始生成
         </el-button>
@@ -163,6 +191,10 @@
     </div>
 
     <div class="step-content" v-if="step === 4">
+      <div class="step-actions top-actions">
+        <el-button @click="goStep(3)">上一步</el-button>
+        <el-button v-if="maxStepReached >= 2" @click="goStep(2)">修改格式要求</el-button>
+      </div>
       <el-button type="success" size="large" :loading="loading" @click="runGenerate" v-if="!result && !loading">
         <el-icon><Document /></el-icon> 生成投标文档
       </el-button>
@@ -214,6 +246,7 @@ import { biddingApi, projectApi } from '@/shared/api.js'
 
 const props = defineProps({ projectId: Number, biddingId: Number })
 const step = ref(0)
+const maxStepReached = ref(0)
 const loading = ref(false)
 const facts = ref([])
 const formatRequirements = ref({ required_chapters: [], format_notes: [], document_composition: '' })
@@ -226,36 +259,137 @@ const progressText = ref('')
 const progressCurrent = ref(0)
 const progressTotal = ref(0)
 const scoringReport = ref(null)
+const restoreNotice = ref('')
+const stepItems = [
+  { title: '预分析' },
+  { title: '确认事实' },
+  { title: '格式要求' },
+  { title: '设计目录' },
+  { title: '生成文档' },
+]
 
 onMounted(async () => { await restoreState() })
 
 async function restoreState() {
   try {
     const { data: proj } = await projectApi.get(props.projectId)
-    const status = proj.project_status
+    const analysis = normaliseJson(proj.analysisData || proj.analysis_data, {})
+    const savedOutline = normaliseJson(proj.directoryStructure || proj.directory_structure, null)
+    const format = analysis.bid_document_format_confirmed || analysis.bid_document_format
+    const { data: factsData } = await projectApi.getFacts(props.projectId)
+    facts.value = factsData.items || []
 
-    if (status === 'completed' && proj.biddingStatus === 'Generated') {
-      const fileId = proj.generated_file_id || proj.biddingId
+    if (format) {
+      hydrateFormat(format)
+    }
+
+    let restoredStep = 0
+    if (Object.keys(analysis || {}).length || facts.value.length) restoredStep = 1
+    if (facts.value.some(f => f.status === 'confirmed')) restoredStep = 2
+    if (format) restoredStep = Math.max(restoredStep, 2)
+    if (savedOutline?.chapters?.length) {
+      outline.value = savedOutline
+      restoredStep = 3
+    }
+
+    const generatedFileId = proj.generated_file_id || proj.generatedFileId
+    if (proj.project_status === 'completed' && (generatedFileId || proj.generatedFileUrl)) {
       result.value = {
-        fileUrl: `/api/files/${fileId}/download`,
-        wordFileId: fileId,
+        fileUrl: proj.generatedFileUrl || `/api/files/${generatedFileId}/download`,
+        wordFileId: generatedFileId,
         bidDocumentId: proj.bidDocumentId,
       }
-      step.value = 4
-      return
+      restoredStep = 4
     }
 
-    if (status === 'analyzing' || status === 'generating') {
-      const { data: factsData } = await projectApi.getFacts(props.projectId)
-      facts.value = factsData.items || []
-      if (facts.value.some(f => f.status === 'confirmed')) {
-        step.value = 2
-      } else if (facts.value.length > 0) {
-        step.value = 1
-      }
-      return
-    }
-  } catch { /* start from step 0 */ }
+    maxStepReached.value = restoredStep
+    step.value = restoredStep
+    restoreNotice.value = restoredStep > 0 ? `已恢复到「${stepItems[restoredStep].title}」阶段，可点击上方步骤返回查看或修改。` : ''
+  } catch {
+    maxStepReached.value = 0
+    step.value = 0
+  }
+}
+
+function normaliseJson(value, fallback) {
+  if (!value) return fallback
+  if (typeof value === 'object') return value
+  try {
+    return JSON.parse(value)
+  } catch {
+    return fallback
+  }
+}
+
+function clone(value) {
+  return JSON.parse(JSON.stringify(value))
+}
+
+function defaultCoverLines() {
+  return [
+    { text: '投 标 文 件', style: 'title', placeholder: 'none' },
+    { text: '', style: 'subtitle', placeholder: 'project_name' },
+    { text: '', style: 'normal', placeholder: 'bidder_name' },
+    { text: '', style: 'normal', placeholder: 'bid_date' },
+  ]
+}
+
+function hydrateFormat(format) {
+  formatRequirements.value = {
+    required_chapters: clone(format.required_chapters || []),
+    format_notes: clone(format.format_notes || []),
+    document_composition: format.document_composition || '',
+  }
+  const cover = format.cover_page
+  if (cover?.cover_lines?.length) {
+    coverLines.value = clone(cover.cover_lines)
+    coverNotes.value = cover.cover_notes || ''
+  } else if (!coverLines.value.length) {
+    coverLines.value = defaultCoverLines()
+  }
+}
+
+function canVisitStep(index) {
+  return index <= maxStepReached.value
+}
+
+function goStep(index) {
+  if (!canVisitStep(index)) return
+  step.value = index
+}
+
+function markReached(index) {
+  maxStepReached.value = Math.max(maxStepReached.value, index)
+}
+
+function resetAfter(index) {
+  maxStepReached.value = Math.min(maxStepReached.value, index)
+  if (index < 4) {
+    result.value = null
+    progressText.value = ''
+    progressCurrent.value = 0
+    progressTotal.value = 0
+    scoringReport.value = null
+  }
+  if (index < 3) {
+    outline.value = null
+  }
+}
+
+function currentFormatPayload() {
+  return {
+    ...formatRequirements.value,
+    cover_page: {
+      has_cover_requirement: coverLines.value.length > 0,
+      cover_lines: coverLines.value,
+      cover_notes: coverNotes.value,
+    },
+  }
+}
+
+function confirmOutline() {
+  markReached(4)
+  step.value = 4
 }
 
 const typeLabel = (type) => {
@@ -297,25 +431,13 @@ async function runPreAnalysis() {
     facts.value = factsData.items || []
 
     if (analysisResult.bid_document_format) {
-      formatRequirements.value = {
-        required_chapters: analysisResult.bid_document_format.required_chapters || [],
-        format_notes: analysisResult.bid_document_format.format_notes || [],
-        document_composition: analysisResult.bid_document_format.document_composition || '',
-      }
-      const cover = analysisResult.bid_document_format.cover_page
-      if (cover && cover.cover_lines) {
-        coverLines.value = cover.cover_lines
-        coverNotes.value = cover.cover_notes || ''
-      } else {
-        coverLines.value = [
-          { text: '投 标 文 件', style: 'title', placeholder: 'none' },
-          { text: '', style: 'subtitle', placeholder: 'project_name' },
-          { text: '', style: 'normal', placeholder: 'bidder_name' },
-          { text: '', style: 'normal', placeholder: 'bid_date' },
-        ]
-      }
+      hydrateFormat(analysisResult.bid_document_format)
+    } else if (!coverLines.value.length) {
+      coverLines.value = defaultCoverLines()
     }
 
+    resetAfter(1)
+    markReached(1)
     step.value = 1
   } catch (e) {
     ElMessage.error(e.response?.data?.error || '预分析失败')
@@ -328,6 +450,8 @@ async function confirmFacts() {
     const payload = facts.value.map(f => ({ factKey: f.factKey, factValue: f.factValue, status: 'confirmed' }))
     await projectApi.confirmFacts(props.projectId, payload)
     ElMessage.success('事实已确认')
+    resetAfter(2)
+    markReached(2)
     step.value = 2
   } catch (e) {
     ElMessage.error(e.response?.data?.error || '确认失败')
@@ -347,12 +471,10 @@ function addCoverLine() {
 }
 
 function confirmFormat() {
-  formatRequirements.value.cover_page = {
-    has_cover_requirement: coverLines.value.length > 0,
-    cover_lines: coverLines.value,
-    cover_notes: coverNotes.value,
-  }
+  formatRequirements.value = currentFormatPayload()
   ElMessage.success('格式要求已确认')
+  resetAfter(3)
+  markReached(3)
   step.value = 3
 }
 
@@ -362,6 +484,7 @@ async function runChapterDesign() {
     const reqs = useFormatRequirements.value ? formatRequirements.value : null
     const { data } = await biddingApi.chapterDesign(props.biddingId, reqs)
     outline.value = data
+    markReached(3)
   } catch (e) {
     ElMessage.error(e.response?.data?.error || '目录设计失败')
   } finally { loading.value = false }
@@ -407,6 +530,7 @@ async function runGenerate() {
             progressText.value = `正在生成 (${msg.current}/${msg.total}): ${msg.chapter}`
           } else if (msg.type === 'done') {
             result.value = msg
+            markReached(4)
             ElMessage.success('投标文档生成完成')
           } else if (msg.type === 'scoring') {
             scoringReport.value = msg.report
@@ -432,7 +556,13 @@ function downloadWord() {
 
 <style scoped>
 .gen-steps { margin-bottom: 32px; }
+.gen-steps :deep(.clickable) { cursor: pointer; }
+.gen-steps :deep(.clickable .el-step__title),
+.gen-steps :deep(.clickable .el-step__icon) { cursor: pointer; }
+.restore-notice { margin-bottom: 16px; }
 .step-content { padding: 20px 0; }
+.step-actions { display: flex; gap: 10px; align-items: center; margin-top: 16px; }
+.top-actions { margin-top: 0; margin-bottom: 16px; }
 .hint { color: #718096; margin-top: 8px; font-size: 13px; }
 .outline-preview { margin-top: 16px; }
 .outline-questions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }

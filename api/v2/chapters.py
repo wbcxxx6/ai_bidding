@@ -9,6 +9,7 @@ from services.v2.editor_doc_service import get_editor_doc, save_editor_doc
 from services.v2.followup_service import list_chapter_followups
 from services.v2.image_plan_service import list_chapter_image_plans
 from services.v2.workbench_service import get_project_workbench_overview
+from services.model_router import model_router
 
 
 bp = Blueprint("v2_chapters", __name__, url_prefix="/chapters")
@@ -184,3 +185,66 @@ def chapter_image_plans(chapter_id):
 @bp.route("/<int:chapter_id>/followups", methods=["GET"])
 def chapter_followups(chapter_id):
     return jsonify({"items": list_chapter_followups(chapter_id)})
+
+
+@bp.route("/<int:chapter_id>/selection-rewrite", methods=["POST"])
+def selection_rewrite(chapter_id):
+    data = request.get_json(silent=True) or {}
+    selected_text = (data.get("selectedText") or data.get("selected_text") or "").strip()
+    instruction = (data.get("instruction") or "").strip()
+    context_before = (data.get("contextBefore") or data.get("context_before") or "").strip()
+    context_after = (data.get("contextAfter") or data.get("context_after") or "").strip()
+    if not selected_text:
+        return jsonify({"error": "selectedText is required."}), 400
+    if not instruction:
+        return jsonify({"error": "instruction is required."}), 400
+
+    conn = get_db()
+    try:
+        chapter = conn.execute("SELECT * FROM bid_chapters WHERE id=?", (chapter_id,)).fetchone()
+    finally:
+        conn.close()
+    if not chapter:
+        return jsonify({"error": "Chapter not found."}), 404
+
+    prompt = f"""你是投标文件选区改写助手。请按用户指令只改写选中文本，不要改写选区之外的内容。
+
+【章节】
+{chapter.get('chapter_title') or ''}
+
+【选中文本前后文】
+前文：
+{context_before[-600:] or '（无）'}
+
+后文：
+{context_after[:600] or '（无）'}
+
+【选中文本】
+{selected_text}
+
+【用户指令】
+{instruction}
+
+【要求】
+- 只输出替换后的新文本，不要输出解释。
+- 保持专业投标文件语气，与上下文衔接自然。
+- 不得编造企业资质、证书编号、人员、金额、日期、产品参数和项目案例。
+- 如果用户要求补充但资料不足，可以写“待补充”。
+"""
+    try:
+        response = model_router.chat(
+            [{"role": "user", "content": prompt}],
+            task_type="generate_chapter",
+            project_id=chapter.get("project_id"),
+            timeout=60,
+        )
+        choices = response.get("output", {}).get("choices") or response.get("choices") or []
+        new_text = (choices[0].get("message", {}).get("content") if choices else "") or ""
+        return jsonify({
+            "chapterId": chapter_id,
+            "rewriteScope": "selection",
+            "originalText": selected_text,
+            "newText": new_text.strip(),
+        })
+    except Exception as exc:
+        return jsonify({"error": f"Selection rewrite failed: {str(exc)}"}), 500

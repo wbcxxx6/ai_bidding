@@ -47,6 +47,17 @@ def _json(value):
     return json.dumps(value, ensure_ascii=False)
 
 
+def _json_loads(value, default=None):
+    if not value:
+        return default
+    if isinstance(value, (dict, list)):
+        return value
+    try:
+        return json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        return default
+
+
 def _row(sql, params=()):
     conn = get_db()
     try:
@@ -477,12 +488,42 @@ def get_project(project_id):
             "SELECT id, original_filename, status, bid_document, generated_file_id, document_key FROM bidding WHERE project_id=? ORDER BY id DESC LIMIT 1",
             (project_id,),
         ).fetchone()
+        bid_document = conn.execute(
+            """
+            SELECT id, current_version_id, status
+            FROM bid_documents
+            WHERE project_id=?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (project_id,),
+        ).fetchone()
+        latest_generate_task = conn.execute(
+            """
+            SELECT output_json
+            FROM generation_tasks
+            WHERE project_id=? AND task_type='generate_document' AND status='succeeded'
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (project_id,),
+        ).fetchone()
         result = dict(project)
+        analysis_data = _json_loads(result.get("analysis_data"), {})
+        directory_structure = _json_loads(result.get("directory_structure"), None)
+        latest_output = _json_loads((latest_generate_task or {}).get("output_json"), {}) or {}
         result["biddingId"] = bidding["id"] if bidding else None
         result["biddingFilename"] = bidding["original_filename"] if bidding else None
         result["biddingStatus"] = bidding["status"] if bidding else None
-        result["generated_file_id"] = bidding["generated_file_id"] if bidding else None
+        result["generated_file_id"] = (bidding["generated_file_id"] if bidding else None) or latest_output.get("wordFileId")
         result["document_key"] = bidding["document_key"] if bidding else None
+        result["analysisData"] = analysis_data
+        result["directoryStructure"] = directory_structure
+        result["bidDocumentId"] = (bid_document or {}).get("id") or latest_output.get("bidDocumentId")
+        result["bidDocumentStatus"] = (bid_document or {}).get("status")
+        result["generatedFileUrl"] = latest_output.get("fileUrl") or (
+            f"/api/files/{result['generated_file_id']}/download" if result.get("generated_file_id") else None
+        )
         return jsonify(result)
     finally:
         conn.close()
@@ -738,8 +779,12 @@ def chapter_design():
 
     format_plan = parse_tender_format(tender_content, analysis)
     format_first_outline = build_outline(format_plan, format_reqs, analysis)
+    if format_reqs:
+        analysis["bid_document_format_confirmed"] = format_reqs
+    analysis["outline_generation_mode"] = "tender_format_first" if format_reqs else "free_design"
     _update_project(
         bidding["project_id"],
+        analysis_data=_json(analysis),
         directory_structure=_json(format_first_outline),
         project_status="analyzing",
     )
@@ -1020,6 +1065,20 @@ def generate_bid_document():
                 word_file_id = markdown_stored.file_id
 
             _update_project(bidding["project_id"], project_status="completed")
+            try:
+                conn = get_db()
+                conn.execute(
+                    """
+                    UPDATE bidding
+                    SET status='Generated', generated_file_id=?, bid_document=?, document_key=COALESCE(document_key, ?)
+                    WHERE id=?
+                    """,
+                    (word_file_id, file_url, f"gen-{bidding['project_id']}", bidding_id),
+                )
+                conn.commit()
+                conn.close()
+            except Exception:
+                logging.exception("failed to persist generated bidding file")
             _finish_task(task_id, "succeeded", {"fileUrl": file_url, "wordFileId": word_file_id, "bidDocumentId": bid_document_id})
 
             yield f"data: {_json({'type': 'done', 'fileUrl': file_url, 'wordFileId': word_file_id, 'bidDocumentId': bid_document_id, 'markdownFileId': markdown_stored.file_id})}\n\n"
