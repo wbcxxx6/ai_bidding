@@ -52,5 +52,6 @@ const activeMenu = computed(() => {
 .aside-menu :deep(.el-menu-item:hover),
 .aside-menu :deep(.el-menu-item.is-active) { background: rgba(99, 102, 241, 0.15); color: #fff; }
 .app-header { display: flex; align-items: center; background: #fff; border-bottom: 1px solid #edf2f7; height: 56px; }
-.app-main { background: #f7f8fc; padding: 24px; overflow-y: auto; }
+.app-main { display: flex; flex-direction: column; background: #f7f8fc; padding: 24px; overflow-y: auto; }
+.app-main :deep(> *) { flex: 1; min-height: 0; }
 </style>

@@ -126,6 +126,40 @@ class OutlineBuilderTest(unittest.TestCase):
         self.assertEqual(outline["chapters"][0]["templateStatus"], "toc_only")
         self.assertTrue(any("投标函" in question for question in outline["questions"]))
 
+    def test_duplicate_numbered_titles_are_deduplicated(self):
+        format_plan = {
+            "detected": True,
+            "chapters": [
+                {
+                    "title": "投标函",
+                    "type": "locked_template",
+                    "sourceText": "投标函 1",
+                    "templateStatus": "toc_only",
+                },
+                {
+                    "title": "1.投标函",
+                    "type": "locked_template",
+                    "sourceText": "1.投标函\n致：采购人\n我方承诺响应招标文件要求。",
+                    "templateStatus": "valid",
+                },
+                {
+                    "title": "二、法定代表人身份证明",
+                    "type": "locked_template",
+                    "sourceText": "二、法定代表人身份证明\n身份证明正文",
+                },
+                {
+                    "title": "法定代表人身份证明",
+                    "type": "locked_template",
+                    "sourceText": "法定代表人身份证明 2",
+                },
+            ],
+            "questions": [],
+        }
+
+        outline = build_outline(format_plan, None, {})
+
+        self.assertEqual([chapter["title"] for chapter in outline["chapters"]], ["1.投标函", "二、法定代表人身份证明"])
+
 
 if __name__ == "__main__":
     unittest.main()

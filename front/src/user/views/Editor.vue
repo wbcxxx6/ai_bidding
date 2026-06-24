@@ -14,7 +14,7 @@
     <div v-else-if="!fileUrl" class="empty-state">
       <el-empty description="暂无生成文档，请先完成投标文档生成" />
     </div>
-    <div v-else>
+    <div v-else class="editor-shell">
       <div class="editor-toolbar">
         <el-button type="primary" size="small" @click="download">
           <el-icon><Download /></el-icon> 下载 Word
@@ -23,13 +23,15 @@
         <el-tag type="warning" size="small" v-else-if="!editorError">正在加载编辑器...</el-tag>
         <el-tag type="danger" size="small" v-if="editorError">{{ editorError }}</el-tag>
       </div>
-      <div id="onlyoffice-editor" class="editor-frame"></div>
+      <div class="editor-frame-wrap">
+        <div :id="editorElementId" class="editor-frame"></div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { Download } from '@element-plus/icons-vue'
 import { projectApi } from '@/shared/api.js'
 
@@ -41,14 +43,17 @@ const fileUrl = ref(null)
 const fileId = ref(null)
 const editorReady = ref(false)
 const editorError = ref(null)
+const editorElementId = `onlyoffice-editor-${props.projectId}-${Date.now()}`
 
 let editorInstance = null
+let editorReadyTimer = null
 
-const ONLYOFFICE_URL = window.__ONLYOFFICE_URL__ || 'http://localhost:8081'
+const ONLYOFFICE_URL = window.__ONLYOFFICE_URL__ || import.meta.env.VITE_ONLYOFFICE_URL || 'http://localhost'
 
 onMounted(() => { loadDocument() })
 
 onBeforeUnmount(() => {
+  clearEditorReadyTimer()
   if (editorInstance?.destroyEditor) {
     editorInstance.destroyEditor()
     editorInstance = null
@@ -58,54 +63,112 @@ onBeforeUnmount(() => {
 async function loadDocument() {
   loading.value = true
   error.value = null
+  editorReady.value = false
+  editorError.value = null
+  clearEditorReadyTimer()
   try {
-    const { data } = await projectApi.get(props.projectId)
-    if (data.generated_file_id) {
-      fileId.value = data.generated_file_id
-      fileUrl.value = `/api/files/${data.generated_file_id}/download`
-
-      const { data: editorData } = await projectApi.getEditorConfig(props.projectId)
-      if (editorData.config) {
-        await initEditorWithConfig(editorData.config)
-      } else {
-        editorError.value = editorData.error || '无法获取编辑器配置'
-      }
+    const { data: editorData } = await projectApi.getEditorConfig(props.projectId)
+    loading.value = false
+    await nextTick()
+    if (editorData.config) {
+      fileId.value = editorData.generatedFileId
+      fileUrl.value = `/api/files/${editorData.generatedFileId}/download`
+      await initEditorWithConfig(editorData.config)
     } else {
       fileUrl.value = null
+      error.value = editorData.error || '暂无可在线编辑的 Word 文档，请先在 AI 工作台导出整本。'
     }
   } catch (e) {
-    error.value = '加载文档信息失败'
-  } finally {
+    error.value = e.response?.data?.error || '加载文档信息失败'
     loading.value = false
   }
+}
+
+function clearEditorReadyTimer() {
+  if (editorReadyTimer) {
+    clearTimeout(editorReadyTimer)
+    editorReadyTimer = null
+  }
+}
+
+function markEditorReady() {
+  clearEditorReadyTimer()
+  editorReady.value = true
+}
+
+function markEditorError(message) {
+  clearEditorReadyTimer()
+  editorError.value = message
+}
+
+function startEditorReadyTimer() {
+  clearEditorReadyTimer()
+  editorReadyTimer = setTimeout(() => {
+    if (!editorReady.value && !editorError.value) {
+      editorError.value = 'OnlyOffice 编辑器初始化超时，请检查 Document Server 是否能访问后端文档地址'
+    }
+  }, 15000)
+}
+
+function ensureEditorContainer() {
+  const element = document.getElementById(editorElementId)
+  if (!element) {
+    throw new Error('OnlyOffice 编辑器容器未渲染，请重试')
+  }
+  const rect = element.getBoundingClientRect()
+  if (rect.width < 320 || rect.height < 480) {
+    throw new Error('OnlyOffice 编辑器容器尺寸异常，请刷新后重试')
+  }
+}
+
+async function waitForEditorContainer() {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    await nextTick()
+    await new Promise(resolve => requestAnimationFrame(resolve))
+    const element = document.getElementById(editorElementId)
+    if (!element) continue
+    const rect = element.getBoundingClientRect()
+    if (rect.width >= 320 && rect.height >= 480) return
+  }
+  ensureEditorContainer()
 }
 
 async function initEditorWithConfig(config) {
   try {
     await loadOnlyOfficeScript()
+    await waitForEditorContainer()
+    ensureEditorContainer()
 
     if (editorInstance?.destroyEditor) {
       editorInstance.destroyEditor()
     }
 
     config.events = {
-      onAppReady: () => { editorReady.value = true },
-      onError: (e) => { editorError.value = `编辑器错误: ${e?.data?.errorDescription || '未知'}` },
+      onAppReady: markEditorReady,
+      onError: (e) => { markEditorError(`编辑器错误: ${e?.data?.errorDescription || '未知'}`) },
     }
 
-    editorInstance = new window.DocsAPI.DocEditor('onlyoffice-editor', config)
+    startEditorReadyTimer()
+    editorInstance = new window.DocsAPI.DocEditor(editorElementId, config)
   } catch (e) {
-    editorError.value = e.message || 'OnlyOffice 加载失败'
+    markEditorError(e.message || 'OnlyOffice 加载失败')
   }
 }
 
 function loadOnlyOfficeScript() {
   if (window.DocsAPI) return Promise.resolve()
   return new Promise((resolve, reject) => {
+    const existingScript = document.querySelector('script[data-onlyoffice-api="true"]')
+    if (existingScript) {
+      existingScript.addEventListener('load', resolve, { once: true })
+      existingScript.addEventListener('error', () => reject(new Error(`OnlyOffice 文档服务不可用，请确认 Document Server 已启动：${ONLYOFFICE_URL}`)), { once: true })
+      return
+    }
     const script = document.createElement('script')
+    script.dataset.onlyofficeApi = 'true'
     script.src = `${ONLYOFFICE_URL}/web-apps/apps/api/documents/api.js`
     script.onload = resolve
-    script.onerror = () => reject(new Error('OnlyOffice 文档服务不可用，请确认 Document Server 已启动（端口 8081）'))
+    script.onerror = () => reject(new Error(`OnlyOffice 文档服务不可用，请确认 Document Server 已启动：${ONLYOFFICE_URL}`))
     document.head.appendChild(script)
   })
 }
@@ -118,8 +181,47 @@ function download() {
 </script>
 
 <style scoped>
-.editor-container { height: calc(100vh - 180px); display: flex; flex-direction: column; }
-.editor-toolbar { display: flex; align-items: center; gap: 12px; padding: 8px 0; }
-.editor-frame { flex: 1; width: 100%; min-height: 500px; border: 1px solid #e2e8f0; border-radius: 8px; }
-.loading-state, .error-state, .empty-state { padding: 40px 0; }
+.editor-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 640px;
+}
+
+.editor-shell {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.editor-toolbar {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 12px;
+  padding: 8px 0 12px;
+}
+
+.editor-frame-wrap {
+  flex: 1;
+  height: min(820px, calc(100vh - 230px));
+  min-height: 680px;
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid #dfe7f2;
+  border-radius: 8px;
+}
+
+.editor-frame {
+  width: 100%;
+  height: 100%;
+  min-height: 680px;
+}
+
+.loading-state,
+.error-state,
+.empty-state {
+  padding: 40px 0;
+}
 </style>

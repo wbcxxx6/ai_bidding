@@ -133,6 +133,47 @@ class TenderFormatParserTest(unittest.TestCase):
         self.assertEqual([chapter["title"] for chapter in result["chapters"]], ["1. 投标函", "2. 法定代表人身份证明"])
         self.assertIn("1.我方已经仔细阅读", result["chapters"][0]["sourceText"])
 
+    def test_ignores_contract_clause_noise_when_extracting_format_chapters(self):
+        tender = """
+第六章 响应文件格式
+响应文件应包含以下章节。
+
+1. 投标函
+致：采购人
+我方承诺响应招标文件。
+
+2. 甲方如错误通知到货地点、接货人的，应承担乙方因此所受到的实际损失。
+
+6. 乙方若提前交货，必须征得甲方书面同意，否则甲方可不予接收货物，因此造成的一切损失均由乙方负责。
+
+3. /
+
+2. 法定代表人身份证明
+法定代表人姓名：____
+"""
+
+        result = parse_tender_format(tender, {})
+
+        titles = [chapter["title"] for chapter in result["chapters"]]
+        self.assertEqual(titles, ["1. 投标函", "2. 法定代表人身份证明"])
+        self.assertNotIn("甲方如错误通知到货地点", "\n".join(titles))
+        self.assertNotIn("乙方若提前交货", "\n".join(titles))
+        self.assertNotIn("3. /", titles)
+
+    def test_keeps_legitimate_contract_response_chapter_title(self):
+        tender = """
+第六章 响应文件格式
+1. 商务合同条款响应
+投标人应逐条响应商务合同条款。
+
+2. 技术响应文件
+投标人应逐条响应技术要求。
+"""
+
+        result = parse_tender_format(tender, {})
+
+        self.assertEqual([chapter["title"] for chapter in result["chapters"]], ["1. 商务合同条款响应", "2. 技术响应文件"])
+
     def test_keeps_long_template_source_text_for_exact_copy(self):
         long_body = "\n".join(f"{idx}.我方承诺按招标文件要求执行第{idx}项内容。" for idx in range(1, 260))
         tender = f"""

@@ -4,6 +4,7 @@ from datetime import datetime
 from flask import Blueprint, jsonify, request
 
 from core.db import get_db
+from services.chapter_title import dedupe_by_chapter_title, normalise_chapter_title
 from services.v2.citation_service import list_chapter_citations
 from services.v2.editor_doc_service import get_editor_doc, save_editor_doc
 from services.v2.followup_service import list_chapter_followups
@@ -52,50 +53,138 @@ def _normalise_outline(raw):
     return []
 
 
+def _outline_chapters_for_project(project):
+    return dedupe_by_chapter_title(
+        _normalise_outline(project.get("directory_structure")),
+        get_title=lambda chapter: chapter.get("title") if isinstance(chapter, dict) else "",
+        score_item=lambda chapter: len(chapter.get("sourceText") or "") if isinstance(chapter, dict) else 0,
+    )
+
+
+def _chapter_titles(chapters):
+    return [
+        normalise_chapter_title(chapter.get("title") or chapter.get("chapter_title"))
+        for chapter in chapters or []
+        if normalise_chapter_title(chapter.get("title") or chapter.get("chapter_title"))
+    ]
+
+
+def _can_supersede_chapter_document(conn, rows):
+    if not rows:
+        return True
+    if any(row.get("current_version_id") or row.get("status") in {"generated", "ready"} for row in rows):
+        return False
+    chapter_ids = [row["id"] for row in rows if row.get("id")]
+    if not chapter_ids:
+        return True
+    placeholders = ", ".join(["?"] * len(chapter_ids))
+    protected = conn.execute(
+        f"""
+        SELECT
+          (
+            (SELECT COUNT(*) FROM chapter_editor_docs WHERE chapter_id IN ({placeholders}))
+            + (SELECT COUNT(*) FROM citation_record WHERE chapter_id IN ({placeholders}))
+            + (SELECT COUNT(*) FROM image_plan WHERE chapter_id IN ({placeholders}))
+            + (SELECT COUNT(*) FROM followup_question WHERE chapter_id IN ({placeholders}))
+            + (SELECT COUNT(*) FROM agent_task WHERE chapter_id IN ({placeholders}))
+          ) AS protected_count
+        """,
+        tuple(chapter_ids * 5),
+    ).fetchone()
+    return int((protected or {}).get("protected_count") or 0) == 0
+
+
+def _insert_project_chapters(conn, project, chapters):
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT INTO bid_documents
+        (tenant_id, project_id, document_title, status, created_by, created_at, updated_at)
+        VALUES (1, ?, ?, 'draft', NULL, ?, ?)
+        """,
+        (project["id"], f"{project.get('project_name') or '投标文件'} - V2 工作台", now(), now()),
+    )
+    bid_document_id = cursor.lastrowid
+    for index, chapter in enumerate(chapters):
+        cursor.execute(
+            """
+            INSERT INTO bid_chapters
+            (tenant_id, bid_document_id, project_id, chapter_title, chapter_type, sort_order,
+             outline_json, status, created_at, updated_at)
+            VALUES (1, ?, ?, ?, ?, ?, ?, 'planned', ?, ?)
+            """,
+            (
+                bid_document_id,
+                project["id"],
+                chapter.get("title") or f"章节 {index + 1}",
+                chapter.get("type") or "normal",
+                index,
+                dumps({**chapter, "description": _chapter_description(chapter)}),
+                now(),
+                now(),
+            ),
+        )
+
+
 def _materialize_project_chapters(project_id):
     conn = get_db()
     try:
-        existing = conn.execute("SELECT id FROM bid_chapters WHERE project_id=? LIMIT 1", (project_id,)).fetchone()
-        if existing:
-            return
         project = conn.execute("SELECT * FROM bid_projects WHERE id=?", (project_id,)).fetchone()
         if not project:
             raise ValueError(f"Project not found: {project_id}")
-        chapters = _normalise_outline(project.get("directory_structure"))
+        chapters = _outline_chapters_for_project(project)
         if not chapters:
             return
-        cursor = conn.cursor()
-        cursor.execute(
+        latest_doc = conn.execute(
             """
-            INSERT INTO bid_documents
-            (tenant_id, project_id, document_title, status, created_by, created_at, updated_at)
-            VALUES (1, ?, ?, 'draft', NULL, ?, ?)
+            SELECT id
+            FROM bid_documents
+            WHERE project_id=? AND deleted_at IS NULL
+            ORDER BY id DESC
+            LIMIT 1
             """,
-            (project_id, f"{project.get('project_name') or '投标文件'} - V2 工作台", now(), now()),
-        )
-        bid_document_id = cursor.lastrowid
-        for index, chapter in enumerate(chapters):
-            cursor.execute(
+            (project_id,),
+        ).fetchone()
+        rows = []
+        if latest_doc:
+            rows = conn.execute(
                 """
-                INSERT INTO bid_chapters
-                (tenant_id, bid_document_id, project_id, chapter_title, chapter_type, sort_order,
-                 outline_json, status, created_at, updated_at)
-                VALUES (1, ?, ?, ?, ?, ?, ?, 'planned', ?, ?)
+                SELECT * FROM bid_chapters
+                WHERE project_id=? AND bid_document_id=?
+                ORDER BY sort_order ASC, id ASC
                 """,
-                (
-                    bid_document_id,
-                    project_id,
-                    chapter.get("title") or f"章节 {index + 1}",
-                    chapter.get("type") or "normal",
-                    index,
-                    dumps({**chapter, "description": _chapter_description(chapter)}),
-                    now(),
-                    now(),
-                ),
-            )
+                (project_id, latest_doc["id"]),
+            ).fetchall()
+            if _chapter_titles(rows) == _chapter_titles(chapters):
+                return
+            if rows and not _can_supersede_chapter_document(conn, rows):
+                return
+        _insert_project_chapters(conn, project, chapters)
         conn.commit()
     finally:
         conn.close()
+
+
+def _latest_bid_document_id(conn, project_id):
+    row = conn.execute(
+        """
+        SELECT id
+        FROM bid_documents
+        WHERE project_id=? AND deleted_at IS NULL
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (project_id,),
+    ).fetchone()
+    return (row or {}).get("id")
+
+
+def _chapter_score(chapter):
+    return (
+        (1000 if chapter.get("currentVersionId") else 0)
+        + (100 if chapter.get("status") in {"generated", "ready"} else 0)
+        + int(chapter.get("id") or 0)
+    )
 
 
 def _format_chapter(row):
@@ -126,15 +215,23 @@ def list_chapters():
         return jsonify({"error": str(exc)}), 404
     conn = get_db()
     try:
+        bid_document_id = _latest_bid_document_id(conn, int(project_id))
+        if not bid_document_id:
+            return jsonify({"items": []})
         rows = conn.execute(
             """
             SELECT * FROM bid_chapters
-            WHERE project_id=?
+            WHERE project_id=? AND bid_document_id=?
             ORDER BY sort_order ASC, id ASC
             """,
-            (int(project_id),),
+            (int(project_id), bid_document_id),
         ).fetchall()
-        return jsonify({"items": [_format_chapter(row) for row in rows]})
+        items = dedupe_by_chapter_title(
+            [_format_chapter(row) for row in rows],
+            get_title=lambda chapter: chapter.get("title"),
+            score_item=_chapter_score,
+        )
+        return jsonify({"items": items})
     finally:
         conn.close()
 

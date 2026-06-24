@@ -196,6 +196,8 @@ def build_context(query, *, project_id, chapter_id=None, limit=5):
             "count": len(domain_items),
             "degraded": pack.get("degraded", False),
             "fallbackUsed": pack.get("fallback_used", False),
+            "backend": pack.get("backend"),
+            "retrievalLogId": pack.get("retrieval_log_id"),
         }
         for item in domain_items:
             item["sourceType"] = policy["sourceType"]
@@ -231,6 +233,7 @@ def build_context(query, *, project_id, chapter_id=None, limit=5):
         "items": items,
         "contextText": context_text,
         "sourceMix": source_mix,
+        "scoreTrace": [item.get("explain") for item in items if item.get("explain")],
         "degraded": degraded,
         "degradedReason": degraded_reason,
         "fallbackUsed": fallback_used,

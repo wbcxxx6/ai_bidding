@@ -64,7 +64,9 @@ export const generationApi = {
 
 export const knowledgeApi = {
   list: () => http.get('/knowledge-bases'),
+  get: (id) => http.get(`/knowledge-bases/${id}`),
   create: (data) => http.post('/knowledge-bases', data),
+  listChunks: (documentId) => http.get(`/documents/${documentId}/chunks`),
   uploadDoc: (kbId, file, docType) => {
     const form = new FormData()
     form.append('file', file)
@@ -79,6 +81,8 @@ export const settingsApi = {
   update: (data) => http.post('/settings/model-config', { activeProvider: data.provider, model: data.model, apiKey: data.apiKey, baseUrl: data.baseUrl }),
   test: () => http.post('/settings/test-model'),
   getProviders: () => http.get('/settings/model-providers'),
+  getDashboardStats: () => http.get('/settings/dashboard-stats'),
+  listModelLogs: (params = {}) => http.get('/settings/model-logs', { params }),
 }
 
 export const v2Api = {

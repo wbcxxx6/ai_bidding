@@ -39,7 +39,7 @@ AI 招投标文档生成系统面向企业投标场景，围绕“招标文件�
 | 前端 | Vue 3、Vite、Element Plus、Pinia、Vue Router、Tiptap |
 | 后端 | Flask、Flask-CORS、PyMySQL |
 | 数据库 | MySQL 8.x |
-| 向量库 | ChromaDB，本地默认；Milvus，可选 |
+| RAG 检索 | PostgreSQL + PGVector + FTS + Rerank，ChromaDB/Milvus 作为开发降级 |
 | 文档解析 | Mammoth、PyPDF2 |
 | 文档导出 | python-docx、Markdown |
 | 在线编辑 | OnlyOffice Document Server，可选 |
@@ -132,7 +132,26 @@ CREATE DATABASE bidding DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
 
 确认 `.env` 中的账号具备该数据库的读写权限。后端启动时会执行 `core/db.py` 中的表结构初始化逻辑。
 
-### 5. 启动后端
+### 5. 准备 PostgreSQL RAG
+
+RAG 主路径使用 PostgreSQL + PGVector + Full Text Search。创建数据库并执行迁移：
+
+```bash
+psql "$POSTGRES_DSN" -f migrations/postgres/001_rag_pgvector.sql
+```
+
+`.env` 至少需要配置：
+
+```ini
+POSTGRES_DSN=postgresql://postgres:password@127.0.0.1:5432/ai_bidding
+EMBEDDING_API_KEY=your_embedding_api_key
+EMBEDDING_MODEL=text-embedding-v3
+EMBEDDING_DIM=1024
+```
+
+如果未配置 PostgreSQL，系统会退回 MySQL 文本检索降级路径；上传入库仍保留 Chroma/Milvus 兼容写入，便于迁移期回滚。
+
+### 6. 启动后端
 
 ```bash
 python main.py
@@ -144,7 +163,7 @@ python main.py
 http://localhost:3012
 ```
 
-### 6. 启动前端
+### 7. 启动前端
 
 ```bash
 cd front
@@ -201,10 +220,15 @@ docker run -d \
 ```
 
 `.env` 中的 `ONLYOFFICE_JWT_SECRET` 需要与容器 `JWT_SECRET` 保持一致。
+前端默认从 `http://localhost` 加载 OnlyOffice 插件脚本；如果你把容器映射到其他端口，例如 `-p 8081:80`，请在前端环境变量中设置：
 
-### 4. 可选：切换 Milvus
+```ini
+VITE_ONLYOFFICE_URL=http://localhost:8081
+```
 
-默认向量库为 ChromaDB，适合本地开发。如果要使用 Milvus：
+### 4. 可选：旧向量库降级
+
+PostgreSQL + PGVector 是当前 RAG 主路径。ChromaDB/Milvus 仅作为开发和迁移期降级。如果要使用 Milvus 兼容写入：
 
 ```ini
 VECTOR_STORE=milvus
@@ -215,7 +239,7 @@ MILVUS_INDEX_TYPE=AUTOINDEX
 VECTOR_COLLECTION=document_embeddings
 ```
 
-如果 Milvus 不可用，当前实现会回退到 ChromaDB，便于开发调试。
+如果 Milvus 不可用，兼容写入会回退到 ChromaDB，便于开发调试。
 
 ## 主要接口
 

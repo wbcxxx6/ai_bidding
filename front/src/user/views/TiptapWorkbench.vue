@@ -308,6 +308,7 @@ const workbench = ref({
   recentTasks: [],
 })
 let renderTimer = null
+let autostartConsumed = false
 
 const MarkdownTable = Node.create({
   name: 'markdownTable',
@@ -833,6 +834,8 @@ async function loadChapters() {
       const freshSelected = chapters.value.find(item => item.id === selectedChapter.value.id)
       if (freshSelected) {
         selectedChapter.value = freshSelected
+      } else {
+        selectedChapter.value = null
       }
     }
     if (!selectedChapter.value && chapters.value.length) {
@@ -938,7 +941,14 @@ async function generateWholeProject() {
     currentTaskId.value = data.task.id
     await consumeProjectTaskStream(data.task.id)
     await loadWorkbench()
-    ElMessage.success('项目级顺序生成已完成')
+    if (canExportProject.value) {
+      const exported = await runProjectExportTask()
+      if (exported) {
+        ElMessage.success('项目级顺序生成并导出 Word 已完成')
+      }
+    } else {
+      ElMessage.success('项目级顺序生成已完成')
+    }
   } catch (error) {
     errorText.value = error.response?.data?.error || error.message || '项目生成失败'
   } finally {
@@ -948,6 +958,10 @@ async function generateWholeProject() {
 
 async function exportWholeProject() {
   if (exportingProject.value || generating.value || projectRunning.value) return
+  await runProjectExportTask()
+}
+
+async function runProjectExportTask() {
   exportingProject.value = true
   errorText.value = ''
   events.value = []
@@ -958,8 +972,10 @@ async function exportWholeProject() {
     await consumeProjectTaskStream(data.task.id)
     await loadWorkbench()
     ElMessage.success('整本导出完成，可在在线编辑中查看 Word')
+    return true
   } catch (error) {
     errorText.value = error.response?.data?.error || error.message || '项目导出失败'
+    return false
   } finally {
     exportingProject.value = false
   }
@@ -1076,7 +1092,13 @@ async function consumeProjectTaskStream(taskId) {
 
 watch(activeProjectId, () => loadWorkbench())
 
-onMounted(loadWorkbench)
+onMounted(async () => {
+  await loadWorkbench()
+  if (route.query.autostart === 'project-generate' && !autostartConsumed) {
+    autostartConsumed = true
+    await generateWholeProject()
+  }
+})
 
 onBeforeUnmount(() => {
   if (renderTimer) clearTimeout(renderTimer)

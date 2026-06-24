@@ -147,7 +147,7 @@
     <div class="step-content" v-if="step === 3">
       <div class="step-actions top-actions">
         <el-button @click="goStep(2)">上一步</el-button>
-        <el-button v-if="canVisitStep(4)" @click="goStep(4)">回到生成文档</el-button>
+        <el-button v-if="canVisitStep(4)" @click="confirmOutline">进入 AI 工作台</el-button>
         <el-button type="primary" :loading="loading" @click="runChapterDesign">
           {{ outline?.chapters?.length ? '重新生成目录结构' : '生成目录结构' }}
         </el-button>
@@ -195,8 +195,15 @@
         <el-button @click="goStep(3)">上一步</el-button>
         <el-button v-if="maxStepReached >= 2" @click="goStep(2)">修改格式要求</el-button>
       </div>
-      <el-button type="success" size="large" :loading="loading" @click="runGenerate" v-if="!result && !loading">
-        <el-icon><Document /></el-icon> 生成投标文档
+      <el-alert
+        v-if="!result"
+        type="info"
+        show-icon
+        :closable="false"
+        title="章节正文生成已迁移到 AI 工作台。前四步用于预分析、事实确认、格式确认和目录设计；确认目录后进入 AI 工作台逐章生成并导出整本。"
+      />
+      <el-button type="success" size="large" class="mt16" :loading="loading" @click="confirmOutline" v-if="!result && !loading">
+        <el-icon><Document /></el-icon> 进入 AI 工作台生成章节
       </el-button>
       <div v-if="loading && !result" class="generating-hint">
         <el-icon class="is-loading" :size="24"><Loading /></el-icon>
@@ -240,11 +247,13 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Download, Document, Loading } from '@element-plus/icons-vue'
 import { biddingApi, projectApi } from '@/shared/api.js'
 
 const props = defineProps({ projectId: Number, biddingId: Number })
+const router = useRouter()
 const step = ref(0)
 const maxStepReached = ref(0)
 const loading = ref(false)
@@ -265,7 +274,7 @@ const stepItems = [
   { title: '确认事实' },
   { title: '格式要求' },
   { title: '设计目录' },
-  { title: '生成文档' },
+  { title: 'AI 工作台' },
 ]
 
 onMounted(async () => { await restoreState() })
@@ -389,7 +398,7 @@ function currentFormatPayload() {
 
 function confirmOutline() {
   markReached(4)
-  step.value = 4
+  router.push(`/project/${props.projectId}?tab=workbench&autostart=project-generate`)
 }
 
 const typeLabel = (type) => {

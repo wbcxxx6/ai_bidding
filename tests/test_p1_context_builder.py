@@ -37,6 +37,14 @@ class FakeRetrievalRouter:
         }
 
 
+class FakeHybridSearch:
+    def __init__(self, router):
+        self.router = router
+
+    def search(self, query, **kwargs):
+        return self.router.search(query, **kwargs)
+
+
 class FakeImageAssetConn:
     def __init__(self):
         self.closed = False
@@ -70,6 +78,7 @@ class P1ContextBuilderTest(unittest.TestCase):
     def setUp(self):
         self.fake_router = FakeRetrievalRouter()
         sys.modules["services.retrieval_router"] = types.SimpleNamespace(retrieval_router=self.fake_router)
+        sys.modules["services.rag.hybrid_search"] = types.SimpleNamespace(hybrid_search=FakeHybridSearch(self.fake_router))
         sys.modules.pop("services.v2.context_builder", None)
 
     def test_build_context_searches_business_domains_and_assigns_citation_keys(self):

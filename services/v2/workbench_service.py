@@ -1,4 +1,5 @@
 from core.db import get_db
+from services.chapter_title import dedupe_by_chapter_title
 
 
 def _word_count(text):
@@ -25,7 +26,37 @@ def _chapter_volume_label(title, chapter_type):
     return "technical"
 
 
+def _latest_bid_document_id(project_id):
+    conn = get_db()
+    try:
+        row = conn.execute(
+            """
+            SELECT id
+            FROM bid_documents
+            WHERE project_id=? AND deleted_at IS NULL
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (project_id,),
+        ).fetchone()
+        return (row or {}).get("id")
+    finally:
+        conn.close()
+
+
+def _chapter_score(chapter):
+    return (
+        (1000000 if chapter.get("hasContent") else 0)
+        + _safe_int(chapter.get("wordCount"))
+        + (1000 if chapter.get("currentVersionId") else 0)
+        + _safe_int(chapter.get("id"))
+    )
+
+
 def list_project_workbench_chapters(project_id):
+    bid_document_id = _latest_bid_document_id(project_id)
+    if not bid_document_id:
+        return []
     conn = get_db()
     try:
         rows = conn.execute(
@@ -98,10 +129,10 @@ def list_project_workbench_chapters(project_id):
                     ON latest_task.chapter_id = t1.chapter_id
                    AND latest_task.max_id = t1.id
             ) task ON task.chapter_id = c.id
-            WHERE c.project_id=?
+            WHERE c.project_id=? AND c.bid_document_id=?
             ORDER BY c.sort_order ASC, c.id ASC
             """,
-            (project_id,),
+            (project_id, bid_document_id),
         ).fetchall()
 
         items = []
@@ -133,7 +164,7 @@ def list_project_workbench_chapters(project_id):
                     "volumeType": _chapter_volume_label(row.get("chapter_title"), row.get("chapter_type")),
                 }
             )
-        return items
+        return dedupe_by_chapter_title(items, get_title=lambda chapter: chapter.get("title"), score_item=_chapter_score)
     finally:
         conn.close()
 

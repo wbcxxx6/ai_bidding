@@ -25,12 +25,13 @@ from services.agent_orchestrator import (
     run_fact_keeper_agent,
     run_tender_parser_agent,
 )
+from services.chapter_title import dedupe_by_chapter_title
 from services.ingestion_service import extract_text_from_bytes, ingest_document
 from services.outline_builder import build_outline
 from services.tender_format_parser import parse_tender_format
 from services.template_validation import is_valid_template_text
 from services.qwen_client import call_dashscope_api, generate_bid_section
-from storage.storage_service import BlobTooLarge, FileTypeNotAllowed, storage_service
+from storage.storage_service import BlobTooLarge, FileTypeNotAllowed, StorageError, storage_service
 
 
 bp = Blueprint("bidding", __name__)
@@ -64,6 +65,63 @@ def _row(sql, params=()):
         return conn.execute(sql, params).fetchone()
     finally:
         conn.close()
+
+
+def _latest_task_output(conn, project_id):
+    latest_legacy_task = conn.execute(
+        """
+        SELECT output_json
+        FROM generation_tasks
+        WHERE project_id=? AND task_type='generate_document' AND status='succeeded'
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (project_id,),
+    ).fetchone()
+    latest_agent_task = conn.execute(
+        """
+        SELECT output_json
+        FROM agent_task
+        WHERE project_id=? AND task_type IN ('project_export', 'project_generate') AND status='succeeded'
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (project_id,),
+    ).fetchone()
+    legacy_output = _json_loads((latest_legacy_task or {}).get("output_json"), {}) or {}
+    agent_output = _json_loads((latest_agent_task or {}).get("output_json"), {}) or {}
+    return {**legacy_output, **agent_output}
+
+
+def _generated_file_id_from_output(output):
+    return output.get("wordFileId") or output.get("generatedFileId") or output.get("fileId")
+
+
+def _latest_generated_docx_file_id(conn, project_id, preferred_file_id=None):
+    if preferred_file_id:
+        preferred = conn.execute(
+            """
+            SELECT id
+            FROM document_files
+            WHERE id=? AND project_id=? AND deleted_at IS NULL
+              AND (file_category='generated_bid' OR file_ext='.docx')
+            """,
+            (preferred_file_id, project_id),
+        ).fetchone()
+        if preferred:
+            return preferred["id"]
+    row = conn.execute(
+        """
+        SELECT id
+        FROM document_files
+        WHERE project_id=? AND deleted_at IS NULL
+          AND (file_category='generated_bid' OR file_ext='.docx')
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (project_id,),
+    ).fetchone()
+    return (row or {}).get("id")
 
 
 def _create_project(cursor, user_id, original_filename):
@@ -294,6 +352,17 @@ def _template_generation_blockers(chapters, analysis):
     return blockers
 
 
+def _chapter_score(chapter):
+    score = len(chapter.get("sourceText") or "")
+    if chapter.get("templateStatus") == "valid":
+        score += 100000
+    if chapter.get("sourceText"):
+        score += 1000
+    if chapter.get("sections"):
+        score += len(chapter.get("sections") or [])
+    return score
+
+
 def _replace_outside_locked_templates(content, replace_fn):
     parts = re.split(r"(<!-- locked_template -->.*?<!-- /locked_template -->)", content or "", flags=re.DOTALL)
     return "".join(part if part.startswith("<!-- locked_template -->") else replace_fn(part) for part in parts)
@@ -459,11 +528,73 @@ def list_projects():
     try:
         rows = conn.execute(
             """
-            SELECT p.id, p.project_code, p.project_name, p.purchaser_name,
-                   p.industry, p.region, p.project_status, p.created_at,
-                   b.id AS bidding_id
+            SELECT
+                p.id,
+                p.project_code,
+                p.project_name,
+                p.purchaser_name,
+                p.industry,
+                p.region,
+                p.project_status,
+                p.created_at,
+                b.id AS bidding_id,
+                b.original_filename AS bidding_filename,
+                b.status AS bidding_status,
+                legacy_task.id AS latest_generation_task_id,
+                legacy_task.task_type AS latest_generation_task_type,
+                legacy_task.status AS latest_generation_task_status,
+                legacy_task.updated_at AS latest_generation_task_updated_at,
+                agent_task.id AS latest_agent_task_id,
+                agent_task.task_type AS latest_agent_task_type,
+                agent_task.status AS latest_agent_task_status,
+                agent_task.updated_at AS latest_agent_task_updated_at,
+                COALESCE(chapter_stats.total_chapters, 0) AS total_chapters,
+                COALESCE(chapter_stats.generated_chapters, 0) AS generated_chapters,
+                COALESCE(chapter_stats.pending_chapters, 0) AS pending_chapters
             FROM bid_projects p
-            LEFT JOIN bidding b ON b.project_id = p.id
+            LEFT JOIN (
+                SELECT b1.*
+                FROM bidding b1
+                INNER JOIN (
+                    SELECT project_id, MAX(id) AS max_id
+                    FROM bidding
+                    GROUP BY project_id
+                ) latest_bidding ON latest_bidding.max_id = b1.id
+            ) b ON b.project_id = p.id
+            LEFT JOIN (
+                SELECT t1.*
+                FROM generation_tasks t1
+                INNER JOIN (
+                    SELECT project_id, MAX(id) AS max_id
+                    FROM generation_tasks
+                    GROUP BY project_id
+                ) latest_legacy_task ON latest_legacy_task.max_id = t1.id
+            ) legacy_task ON legacy_task.project_id = p.id
+            LEFT JOIN (
+                SELECT t1.*
+                FROM agent_task t1
+                INNER JOIN (
+                    SELECT project_id, MAX(id) AS max_id
+                    FROM agent_task
+                    GROUP BY project_id
+                ) latest_agent_task ON latest_agent_task.max_id = t1.id
+            ) agent_task ON agent_task.project_id = p.id
+            LEFT JOIN (
+                SELECT
+                    c.project_id,
+                    c.bid_document_id,
+                    COUNT(*) AS total_chapters,
+                    SUM(CASE WHEN c.current_version_id IS NOT NULL OR c.status IN ('generated', 'ready') THEN 1 ELSE 0 END) AS generated_chapters,
+                    SUM(CASE WHEN c.current_version_id IS NULL AND c.status NOT IN ('generated', 'ready') THEN 1 ELSE 0 END) AS pending_chapters
+                FROM bid_chapters c
+                INNER JOIN (
+                    SELECT project_id, MAX(id) AS latest_doc_id
+                    FROM bid_documents
+                    WHERE deleted_at IS NULL
+                    GROUP BY project_id
+                ) latest_doc ON latest_doc.project_id = c.project_id AND latest_doc.latest_doc_id = c.bid_document_id
+                GROUP BY c.project_id, c.bid_document_id
+            ) chapter_stats ON chapter_stats.project_id = p.id
             WHERE p.deleted_at IS NULL
             ORDER BY p.id DESC
             LIMIT 50
@@ -498,24 +629,14 @@ def get_project(project_id):
             """,
             (project_id,),
         ).fetchone()
-        latest_generate_task = conn.execute(
-            """
-            SELECT output_json
-            FROM generation_tasks
-            WHERE project_id=? AND task_type='generate_document' AND status='succeeded'
-            ORDER BY id DESC
-            LIMIT 1
-            """,
-            (project_id,),
-        ).fetchone()
         result = dict(project)
         analysis_data = _json_loads(result.get("analysis_data"), {})
         directory_structure = _json_loads(result.get("directory_structure"), None)
-        latest_output = _json_loads((latest_generate_task or {}).get("output_json"), {}) or {}
+        latest_output = _latest_task_output(conn, project_id)
         result["biddingId"] = bidding["id"] if bidding else None
         result["biddingFilename"] = bidding["original_filename"] if bidding else None
         result["biddingStatus"] = bidding["status"] if bidding else None
-        result["generated_file_id"] = (bidding["generated_file_id"] if bidding else None) or latest_output.get("wordFileId")
+        result["generated_file_id"] = (bidding["generated_file_id"] if bidding else None) or _generated_file_id_from_output(latest_output)
         result["document_key"] = bidding["document_key"] if bidding else None
         result["analysisData"] = analysis_data
         result["directoryStructure"] = directory_structure
@@ -803,6 +924,13 @@ def generate_bid_document():
     if isinstance(chapter_design_data, str):
         chapter_design_data = json.loads(chapter_design_data)
     chapters = chapter_design_data.get("chapters", chapter_design_data) if isinstance(chapter_design_data, dict) else chapter_design_data
+    if not isinstance(chapters, list):
+        return jsonify({"error": "Invalid chapterDesign"}), 400
+    chapters = dedupe_by_chapter_title(
+        chapters,
+        get_title=lambda chapter: chapter.get("title") if isinstance(chapter, dict) else "",
+        score_item=lambda chapter: _chapter_score(chapter) if isinstance(chapter, dict) else 0,
+    )
 
     bidding = _row("SELECT * FROM bidding WHERE id = ?", (bidding_id,))
     if not bidding:
@@ -1119,24 +1247,43 @@ def get_editor_config(project_id):
     conn = get_db()
     try:
         bidding = conn.execute(
-            "SELECT id, original_filename, document_key, generated_file_id FROM bidding WHERE project_id=? AND generated_file_id IS NOT NULL ORDER BY id DESC LIMIT 1",
+            "SELECT id, original_filename, document_key, generated_file_id FROM bidding WHERE project_id=? ORDER BY id DESC LIMIT 1",
             (project_id,),
         ).fetchone()
+        latest_output = _latest_task_output(conn, project_id)
+        generated_file_id = _latest_generated_docx_file_id(
+            conn,
+            project_id,
+            preferred_file_id=(bidding or {}).get("generated_file_id") or _generated_file_id_from_output(latest_output),
+        )
     finally:
         conn.close()
 
-    if not bidding or not bidding.get("generated_file_id"):
-        return jsonify({"error": "No generated document found.", "config": None})
+    if not generated_file_id:
+        return jsonify({"error": "No generated Word document found. Please export the project as Word first.", "config": None, "generatedFileId": None})
 
-    doc_key = f"gen_{bidding['generated_file_id']}_{bidding['id']}"
-    file_url = f"http://{BACKEND_URL_FOR_DOCKER}/api/files/{bidding['generated_file_id']}/download"
+    try:
+        generated_file = storage_service.get_latest(generated_file_id)
+    except StorageError:
+        return jsonify(
+            {
+                "error": "Generated document file is missing or cannot be downloaded.",
+                "config": None,
+                "generatedFileId": generated_file_id,
+            }
+        )
+
+    bidding_id = (bidding or {}).get("id") or project_id
+    doc_key = f"gen_{generated_file_id}_{bidding_id}"
+    file_url = f"http://{BACKEND_URL_FOR_DOCKER}/api/files/{generated_file_id}/download"
     callback_url = f"http://{BACKEND_URL_FOR_DOCKER}/api/bidding/save-callback"
+    title = (generated_file or {}).get("original_filename") or (bidding or {}).get("original_filename") or "投标文档.docx"
 
     payload = {
         "document": {
             "fileType": "docx",
             "key": doc_key,
-            "title": bidding["original_filename"] or "投标文档.docx",
+            "title": title,
             "url": file_url,
         },
         "documentType": "word",
@@ -1152,7 +1299,7 @@ def get_editor_config(project_id):
     token = jwt.encode(payload, ONLYOFFICE_JWT_SECRET, algorithm="HS256")
     config = {**payload, "token": token}
 
-    return jsonify({"config": config})
+    return jsonify({"config": config, "generatedFileId": generated_file_id})
 
 
 @bp.route("/projects/<int:project_id>/facts", methods=["GET"])

@@ -64,15 +64,28 @@ def _load_latest_bidding(project_id):
 def _load_chapters(project_id):
     conn = get_db()
     try:
+        doc = conn.execute(
+            """
+            SELECT id
+            FROM bid_documents
+            WHERE project_id=? AND deleted_at IS NULL
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (project_id,),
+        ).fetchone()
+        bid_document_id = (doc or {}).get("id")
+        if not bid_document_id:
+            return []
         return conn.execute(
             """
             SELECT c.*, v.content AS current_content
             FROM bid_chapters c
             LEFT JOIN bid_chapter_versions v ON v.id = c.current_version_id
-            WHERE c.project_id=?
+            WHERE c.project_id=? AND c.bid_document_id=?
             ORDER BY c.sort_order ASC, c.id ASC
             """,
-            (project_id,),
+            (project_id, bid_document_id),
         ).fetchall()
     finally:
         conn.close()
@@ -242,7 +255,6 @@ def run_project_export(task_id):
         )
         yield _emit(task_id, "artifact", {"kind": "markdown", "fileId": markdown_stored.file_id})
 
-        docx_bytes = None
         try:
             with TemporaryDirectory() as tmpdir:
                 markdown_file = Path(tmpdir) / f"{project_name}_bid_document.md"
@@ -257,22 +269,20 @@ def run_project_export(task_id):
                 docx_bytes = docx_path.read_bytes()
         except Exception as exc:
             LOGGER.warning("project export docx build failed task_id=%s error=%s", task_id, str(exc)[:200])
+            raise ValueError("Word 文档转换失败，已保留 Markdown 草稿，但不能进入 OnlyOffice。请检查导出模板或转换依赖后重试。") from exc
 
-        final_file_id = markdown_stored.file_id
-        file_url = f"/api/files/{markdown_stored.file_id}/download"
-        if docx_bytes:
-            word_stored = storage_service.create_file(
-                content_bytes=docx_bytes,
-                original_filename=f"{project_name}_bid_document.docx",
-                file_category="generated_bid",
-                owner_user_id=task.get("createdBy"),
-                project_id=task["projectId"],
-                change_source="project_export",
-                allow_generated_ext=True,
-            )
-            final_file_id = word_stored.file_id
-            file_url = f"/api/files/{word_stored.file_id}/download"
-            yield _emit(task_id, "artifact", {"kind": "docx", "fileId": word_stored.file_id})
+        word_stored = storage_service.create_file(
+            content_bytes=docx_bytes,
+            original_filename=f"{project_name}_bid_document.docx",
+            file_category="generated_bid",
+            owner_user_id=task.get("createdBy"),
+            project_id=task["projectId"],
+            change_source="project_export",
+            allow_generated_ext=True,
+        )
+        final_file_id = word_stored.file_id
+        file_url = f"/api/files/{word_stored.file_id}/download"
+        yield _emit(task_id, "artifact", {"kind": "docx", "fileId": word_stored.file_id})
 
         bid_document_id = chapters[0].get("bid_document_id")
         doc_version = None

@@ -10,6 +10,7 @@ import PyPDF2
 
 from core.db import get_db
 from services.retrieval_router import retrieval_router
+from services.rag.hybrid_search import hybrid_search
 from storage.storage_service import storage_service
 from storage.vector_store import EMBEDDING_MODEL, VECTOR_COLLECTION, get_vector_store
 
@@ -114,6 +115,7 @@ def ingest_document(
         }
         chunks.append({"id": chunk_id, "text": chunk_text, "metadata": metadata})
 
+    pg_index = hybrid_search.index_chunks(chunks)
     get_vector_store().upsert_chunks(chunks)
     conn = get_db()
     try:
@@ -158,7 +160,7 @@ def ingest_document(
     finally:
         conn.close()
 
-    return {"status": "success", "file_id": file_id, "total_chunks": len(chunks), "chunks": chunks}
+    return {"status": "success", "file_id": file_id, "total_chunks": len(chunks), "chunks": chunks, "pgIndex": pg_index}
 
 
 def delete_document_vectors(document_id):
@@ -166,11 +168,12 @@ def delete_document_vectors(document_id):
     try:
         rows = conn.execute("SELECT chunk_uid FROM document_chunks WHERE file_id = ?", (document_id,)).fetchall()
         ids = [row["chunk_uid"] for row in rows]
+        pg_delete = hybrid_search.delete_file(document_id)
         get_vector_store().delete(ids)
         conn.execute("UPDATE document_chunks SET status='deleted', updated_at=? WHERE file_id=?", (now(), document_id))
         conn.execute("UPDATE document_files SET vector_status='deleted', updated_at=? WHERE id=?", (now(), document_id))
         conn.commit()
-        return {"deleted": len(ids)}
+        return {"deleted": len(ids), "pgDelete": pg_delete}
     finally:
         conn.close()
 

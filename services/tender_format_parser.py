@@ -28,6 +28,17 @@ TEMPLATE_KEYWORDS = [
 ]
 
 OUTLINE_KEYWORDS = ["技术响应", "商务响应", "资格", "实施方案", "服务方案", "技术方案"]
+CONTRACT_BODY_KEYWORDS = [
+    "甲方",
+    "乙方",
+    "货地点",
+    "接货人",
+    "书面同意",
+    "交货",
+    "损失",
+    "违约",
+    "承担",
+]
 TOC_LINE_RE = re.compile(r"^\s*(?:[一二三四五六七八九十]+|\d+)[、．.]\s*[^\n\r]{2,60}\s+\d+\s*$")
 TEMPLATE_BODY_KEYWORDS = ["致：", "致:", "我方", "投标总价", "人民币", "____", "（大写）", "签字", "盖章"]
 MAX_TEMPLATE_SOURCE_TEXT = 20000
@@ -55,12 +66,30 @@ def _classify(title):
     return "locked_outline"
 
 
+def _clean_title(title):
+    return re.sub(r"^(?:[一二三四五六七八九十]+|\d+)[、．.]\s*", "", title or "").strip()
+
+
+def _is_noise_title(title):
+    clean = _clean_title(title)
+    if len(clean) < 2:
+        return True
+    if re.fullmatch(r"[/\\._\-—]+", clean):
+        return True
+    if clean.endswith(("。", "；", ";")):
+        return True
+    contract_hits = sum(1 for keyword in CONTRACT_BODY_KEYWORDS if keyword in clean)
+    if contract_hits >= 2 and len(clean) >= 18:
+        return True
+    return False
+
+
 def _chapter_matches(section_text):
-    matches = list(CHAPTER_HEADING_RE.finditer(section_text))
+    matches = [match for match in CHAPTER_HEADING_RE.finditer(section_text) if not _is_noise_title(match.group("title"))]
     if matches:
         return matches
     if is_toc_like_text(section_text):
-        return list(TOC_CHAPTER_RE.finditer(section_text))
+        return [match for match in TOC_CHAPTER_RE.finditer(section_text) if not _is_noise_title(match.group("title"))]
     return []
 
 

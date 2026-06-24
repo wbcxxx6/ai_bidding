@@ -37,7 +37,7 @@ PROVIDERS = {
     "xiaomi_mimo": {
         "id": "xiaomi_mimo",
         "name": "\u5c0f\u7c73 MiMo",
-        "base_url": "https://token-plan-cn.xiaomimimo.com/v1",
+        "base_url": "https://api.xiaomimimo.com/v1",
         "chat_path": "/chat/completions",
         "default_model": "mimo-v2.5",
         "api_key_env": "MIMO_API_KEY",
@@ -66,9 +66,24 @@ PROVIDERS = {
     },
 }
 
+LEGACY_PROVIDER_BASE_URLS = {
+    "xiaomi_mimo": {
+        "https://token-plan-cn.xiaomimimo.com/v1": "https://api.xiaomimimo.com/v1",
+    }
+}
+
 
 def _now():
     return datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _normalize_base_url(provider_id, base_url):
+    provider = PROVIDERS.get(provider_id)
+    if not provider:
+        return (base_url or "").rstrip("/")
+    resolved = (base_url or provider["base_url"]).rstrip("/")
+    legacy_map = LEGACY_PROVIDER_BASE_URLS.get(provider_id, {})
+    return legacy_map.get(resolved, resolved)
 
 
 def ensure_model_settings_table(db_path=None):
@@ -110,7 +125,16 @@ def get_model_setting(db_path=None):
                 "api_key": "",
                 "base_url": provider["base_url"],
             }
-        return dict(row)
+        result = dict(row)
+        normalized_base_url = _normalize_base_url(result["active_provider"], result.get("base_url"))
+        if normalized_base_url != (result.get("base_url") or "").rstrip("/"):
+            conn.execute(
+                "UPDATE model_settings SET base_url = ?, updated_at = ? WHERE id = 1",
+                (normalized_base_url, _now()),
+            )
+            conn.commit()
+            result["base_url"] = normalized_base_url
+        return result
     finally:
         conn.close()
 
@@ -121,7 +145,7 @@ def save_model_setting(active_provider, model, api_key, base_url=None, db_path=N
         raise ValueError("Unsupported model provider")
 
     provider = PROVIDERS[active_provider]
-    resolved_base_url = (base_url or provider["base_url"]).rstrip("/")
+    resolved_base_url = _normalize_base_url(active_provider, base_url)
     resolved_model = (model or provider["default_model"]).strip()
     if not resolved_model:
         raise ValueError("Model is required for the selected provider")

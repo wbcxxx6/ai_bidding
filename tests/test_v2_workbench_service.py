@@ -27,7 +27,10 @@ class FakeCursor:
 class FakeConn:
     def execute(self, sql, params=()):
         normalized = " ".join(sql.split())
+        if "FROM bid_documents" in normalized:
+            return FakeCursor(fetchone_result={"id": 3})
         if "FROM bid_chapters c" in normalized:
+            self.last_chapter_params = params
             return FakeCursor(
                 fetchall_result=[
                     {

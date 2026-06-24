@@ -1,3 +1,6 @@
+from services.chapter_title import dedupe_by_chapter_title
+
+
 TEMPLATE_KEYWORDS = ["投标函", "授权", "委托书", "报价", "偏离表", "承诺", "声明", "证明", "附件", "格式"]
 OUTLINE_KEYWORDS = ["技术", "商务", "资格", "服务", "实施", "响应"]
 
@@ -134,14 +137,29 @@ def _from_user_requirements(format_requirements):
                 }
             )
         )
-    return chapters
+    return dedupe_by_chapter_title(chapters, get_title=lambda chapter: chapter.get("title"), score_item=_chapter_score)
+
+
+def _chapter_score(chapter):
+    score = len(chapter.get("sourceText") or "")
+    if chapter.get("templateStatus") == "valid":
+        score += 100000
+    if chapter.get("sourceText"):
+        score += 1000
+    if chapter.get("sections"):
+        score += len(chapter.get("sections") or [])
+    return score
 
 
 def build_outline(format_plan, format_requirements=None, analysis_data=None):
     format_requirements = format_requirements or {}
     format_plan = format_plan or {}
     if format_plan.get("detected") and format_plan.get("chapters"):
-        chapters = [_build_chapter(chapter) for chapter in format_plan.get("chapters") or []]
+        chapters = dedupe_by_chapter_title(
+            [_build_chapter(chapter) for chapter in format_plan.get("chapters") or []],
+            get_title=lambda chapter: chapter.get("title"),
+            score_item=_chapter_score,
+        )
         questions = list(format_plan.get("questions") or [])
         for chapter in chapters:
             if chapter.get("type") == "locked_template" and chapter.get("templateStatus") in {"toc_only", "missing"}:

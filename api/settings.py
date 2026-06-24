@@ -1,5 +1,6 @@
 from flask import Blueprint, jsonify, request
 
+from core.db import get_db
 from core.llm_providers import (
     PROVIDERS,
     get_model_setting,
@@ -11,6 +12,11 @@ from services.qwen_client import call_llm_api
 
 
 bp = Blueprint("settings", __name__)
+
+
+def _count(conn, sql):
+    row = conn.execute(sql).fetchone() or {}
+    return int(next(iter(row.values()), 0) or 0)
 
 
 @bp.route("/model-providers", methods=["GET"])
@@ -63,3 +69,44 @@ def test_model():
         return jsonify({"message": "Model connection succeeded.", "content": content})
     except Exception as exc:
         return jsonify({"error": f"Model connection failed: {str(exc)}"}), 500
+
+
+@bp.route("/dashboard-stats", methods=["GET"])
+def dashboard_stats():
+    conn = get_db()
+    try:
+        projects = _count(conn, "SELECT COUNT(*) AS projects FROM bid_projects WHERE deleted_at IS NULL")
+        documents = _count(conn, "SELECT COUNT(*) AS documents FROM knowledge_documents WHERE deleted_at IS NULL")
+        model_calls = _count(conn, "SELECT COUNT(*) AS model_calls FROM model_call_logs")
+        return jsonify({"projects": projects, "documents": documents, "modelCalls": model_calls})
+    finally:
+        conn.close()
+
+
+@bp.route("/model-logs", methods=["GET"])
+def model_logs():
+    limit = request.args.get("limit", default=100, type=int)
+    limit = max(1, min(limit, 200))
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            """
+            SELECT
+                id,
+                project_id,
+                generation_task_id,
+                provider_code,
+                model_name,
+                latency_ms,
+                status,
+                error_message,
+                created_at
+            FROM model_call_logs
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        return jsonify({"items": rows})
+    finally:
+        conn.close()
