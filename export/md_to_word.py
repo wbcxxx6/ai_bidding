@@ -13,6 +13,53 @@ import docx.oxml.shared
 from docx.oxml import OxmlElement
 import shutil
 import uuid
+from export.flowchart_renderer import build_flowchart_svg, parse_flowchart_payload, parse_mermaid_flowchart
+
+IMAGE_MARKDOWN_RE = re.compile(r'^!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)\s*$')
+HTML_BREAK_RE = re.compile(r'<br\s*/?>', re.IGNORECASE)
+TABLE_DIVIDER_RE = re.compile(r'^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$')
+
+
+def _to_chapter_number(value):
+    if not value:
+        return None
+    value = str(value).strip()
+    if value.isdigit():
+        return value
+    digits = {
+        "零": 0,
+        "一": 1,
+        "二": 2,
+        "三": 3,
+        "四": 4,
+        "五": 5,
+        "六": 6,
+        "七": 7,
+        "八": 8,
+        "九": 9,
+    }
+    if value == "十":
+        return "10"
+    if value.startswith("十") and len(value) == 2:
+        return str(10 + digits.get(value[1], 0))
+    if value.endswith("十") and len(value) == 2:
+        return str(digits.get(value[0], 0) * 10)
+    if "十" in value and len(value) == 3:
+        return str(digits.get(value[0], 0) * 10 + digits.get(value[2], 0))
+    if value in digits:
+        return str(digits[value])
+    return None
+
+
+def extract_chapter_number(text):
+    match = re.search(r'第\s*([一二三四五六七八九十百\d]+)\s*章', text or "")
+    if match:
+        return _to_chapter_number(match.group(1))
+    match = re.match(r'^(\d+)[、．.]\s*', text or "")
+    if match:
+        return match.group(1)
+    return None
+
 
 def convert_mermaid_to_image(mermaid_code):
     """将 Mermaid 代码转换为图片，优先用 mmdc，失败则用纯文本框替代"""
@@ -69,6 +116,71 @@ def render_mermaid_as_text_box(doc, mermaid_code):
         run.font.name = '宋体'
         run.font.size = Pt(9)
 
+
+def render_flowchart_as_table(doc, chart):
+    nodes = chart.get("nodes") or []
+    if not nodes:
+        return
+    table = doc.add_table(rows=1, cols=1)
+    table.style = 'Table Grid'
+    cell = table.rows[0].cells[0]
+    cell.text = ""
+    p = cell.paragraphs[0]
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    title_run = p.add_run(f"【{chart.get('title') or '流程图'}】\n")
+    title_run.font.name = '黑体'
+    title_run.font.size = Pt(10.5)
+    title_run.bold = True
+    flow_text = "  →  ".join(node.get("text") or "" for node in nodes)
+    run = p.add_run(flow_text)
+    run.font.name = '宋体'
+    run.font.size = Pt(10)
+
+
+def _insert_svg_chart(doc, chart):
+    svg = build_flowchart_svg(chart)
+    try:
+        import cairosvg
+    except Exception:
+        return False
+    png_file = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f:
+            png_file = f.name
+        cairosvg.svg2png(bytestring=svg.encode("utf-8"), write_to=png_file)
+        doc.add_picture(png_file, width=Inches(5.8))
+        doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
+        return True
+    except Exception:
+        return False
+    finally:
+        try:
+            if png_file and os.path.exists(png_file):
+                os.unlink(png_file)
+        except Exception:
+            pass
+
+
+def add_flowchart_caption(doc, title):
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_after = Pt(6)
+    run = p.add_run(title or "流程图")
+    run.font.name = '宋体'
+    run.font.size = Pt(10.5)
+
+
+def process_structured_flowchart(doc, payload):
+    try:
+        chart = parse_flowchart_payload(payload)
+    except Exception:
+        return False
+    if not _insert_svg_chart(doc, chart):
+        render_flowchart_as_table(doc, chart)
+    add_flowchart_caption(doc, chart.get("title") or "流程图")
+    return True
+
+
 def create_mermaid_config():
     """创建 Mermaid 配置文件"""
     config = {
@@ -96,7 +208,17 @@ def create_mermaid_config():
         json.dump(config, f, indent=2)
 
 def process_mermaid(doc, mermaid_code):
-    """处理 Mermaid 流程图：优先渲染为图片，失败则用文本框"""
+    """处理 Mermaid 流程图：先转结构化流程图，再兜底 mmdc/text box，避免代码入 Word"""
+    try:
+        chart = parse_mermaid_flowchart(mermaid_code)
+        if chart.get("nodes"):
+            if not _insert_svg_chart(doc, chart):
+                render_flowchart_as_table(doc, chart)
+            add_flowchart_caption(doc, chart.get("title") or "流程图")
+            return
+    except Exception:
+        pass
+
     png_file = convert_mermaid_to_image(mermaid_code)
     if png_file and os.path.exists(png_file):
         try:
@@ -108,8 +230,8 @@ def process_mermaid(doc, mermaid_code):
                 os.unlink(png_file)
             except Exception:
                 pass
-    else:
-        render_mermaid_as_text_box(doc, mermaid_code)
+        return
+    render_mermaid_as_text_box(doc, mermaid_code)
 
 def set_document_styles(doc):
     """设置文档样式"""
@@ -300,13 +422,48 @@ def clean_markdown_text(text):
     return text.strip()
 
 
+def is_table_divider(line):
+    return bool(TABLE_DIVIDER_RE.match(line or ""))
+
+
+def parse_table_row(line):
+    if "|" not in (line or ""):
+        return None
+    cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+    return cells if len(cells) >= 2 else None
+
+
+def is_markdown_table_start(lines, index):
+    if index + 1 >= len(lines):
+        return False
+    return parse_table_row(lines[index]) is not None and is_table_divider(lines[index + 1])
+
+
+def normalize_table_cell_text(text):
+    text = HTML_BREAK_RE.sub("\n", text or "")
+    text = text.replace("&nbsp;", " ")
+    return clean_markdown_text(text)
+
+
+def normalize_table_cells(cells, col_count):
+    if len(cells) == col_count:
+        return cells
+    if len(cells) < col_count:
+        return cells + [""] * (col_count - len(cells))
+    return cells[: col_count - 1] + [" | ".join(cells[col_count - 1 :])]
+
+
 def process_table(md_table, doc):
     """处理 Markdown 表格"""
-    lines = md_table.strip().split('\n')
+    lines = [line for line in md_table.strip().split('\n') if line.strip()]
     if len(lines) < 3:
         return
 
-    header_cells = [clean_markdown_text(c.strip()) for c in lines[0].strip('|').split('|')]
+    header_row = parse_table_row(lines[0])
+    if not header_row or not is_table_divider(lines[1]):
+        return
+
+    header_cells = [normalize_table_cell_text(c) for c in header_row]
     col_count = len(header_cells)
 
     table = doc.add_table(rows=1, cols=col_count)
@@ -323,9 +480,12 @@ def process_table(md_table, doc):
                 run.font.size = Pt(10.5)
 
     for line in lines[2:]:
-        if not line.strip() or set(line.strip()) <= {'|', '-', ':', ' '}:
+        if not line.strip() or is_table_divider(line):
             continue
-        cells = [clean_markdown_text(c.strip()) for c in line.strip('|').split('|')]
+        parsed_cells = parse_table_row(line)
+        if not parsed_cells:
+            continue
+        cells = [normalize_table_cell_text(c) for c in normalize_table_cells(parsed_cells, col_count)]
         if len(cells) == col_count:
             row = table.add_row()
             for i, cell in enumerate(cells):
@@ -334,6 +494,70 @@ def process_table(md_table, doc):
                     for run in paragraph.runs:
                         run.font.name = '宋体'
                         run.font.size = Pt(10.5)
+
+
+def add_image_placeholder(doc, line, chapter_no=None, image_index=None):
+    match = IMAGE_MARKDOWN_RE.match((line or "").strip())
+    if not match:
+        return False
+
+    caption = clean_markdown_text(match.group(1).strip()) or "章节配图"
+    target = match.group(2).strip()
+    if chapter_no and image_index:
+        figure_no = f"{chapter_no}-{image_index}"
+    else:
+        figure_no = str(getattr(doc, "_ai_bidding_image_count", 0) + 1)
+    setattr(doc, "_ai_bidding_image_count", getattr(doc, "_ai_bidding_image_count", 0) + 1)
+
+    inserted_real_image = False
+    if not target.startswith("image-plan://"):
+        image_path = Path(target)
+        if image_path.exists() and hasattr(doc, "add_picture"):
+            try:
+                doc.add_picture(str(image_path), width=Inches(5.5))
+                doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
+                inserted_real_image = True
+            except Exception:
+                inserted_real_image = False
+
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_after = Pt(6)
+    status = "图片待补充" if target.startswith("image-plan://") or not inserted_real_image else "图片已插入"
+    run = p.add_run(f"图 {figure_no} {caption}（{status}）")
+    run.font.name = '宋体'
+    run.font.size = Pt(10.5)
+    return True
+
+
+def add_template_paragraph(doc, line):
+    text = clean_markdown_text(line.strip())
+    if not text:
+        doc.add_paragraph()
+        return
+    heading_match = re.match(r'^#+\s*(.+)$', text)
+    numbered_heading_match = None
+    if len(text) <= 24 and not re.search(r'[。；;：:]', text):
+        numbered_heading_match = re.match(r'^(?:[一二三四五六七八九十]+|\d+)[、．.]\s*(.{2,20})$', text)
+    if heading_match or numbered_heading_match:
+        text = clean_markdown_text(heading_match.group(1) if heading_match else numbered_heading_match.group(1))
+        p = doc.add_paragraph()
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p.paragraph_format.space_after = Pt(12)
+        run = p.add_run(text)
+        run.font.name = '黑体'
+        run.font.size = Pt(16)
+        run.bold = True
+        return
+
+    p = doc.add_paragraph()
+    p.paragraph_format.first_line_indent = Pt(24)
+    p.paragraph_format.line_spacing = 1.5
+    p.paragraph_format.space_after = Pt(0)
+    run = p.add_run(text)
+    run.font.name = '宋体'
+    run.font.size = Pt(12)
+
 
 def convert_md_to_word(md_file, cover_data=None, facts=None):
     """将Markdown文件转换为Word文档"""
@@ -354,8 +578,42 @@ def convert_md_to_word(md_file, cover_data=None, facts=None):
     # 处理Markdown内容
     lines = md_content.split('\n')
     i = 0
+    in_locked_template = False
+    current_chapter_no = None
+    current_chapter_image_index = 0
     while i < len(lines):
         line = lines[i].strip()
+
+        if line == '<!-- locked_template -->':
+            in_locked_template = True
+            i += 1
+            continue
+        if line == '<!-- /locked_template -->':
+            in_locked_template = False
+            i += 1
+            continue
+        if in_locked_template:
+            add_template_paragraph(doc, lines[i])
+            i += 1
+            continue
+
+        if IMAGE_MARKDOWN_RE.match(line):
+            current_chapter_image_index += 1
+            add_image_placeholder(doc, line, current_chapter_no or "1", current_chapter_image_index)
+            i += 1
+            continue
+
+        # 处理结构化流程图代码块
+        if line.startswith('```flowchart-json') or line.startswith('```flowchart'):
+            i += 1
+            flowchart_lines = []
+            while i < len(lines) and not lines[i].strip().startswith('```'):
+                flowchart_lines.append(lines[i])
+                i += 1
+            if i < len(lines):
+                i += 1
+            process_structured_flowchart(doc, '\n'.join(flowchart_lines))
+            continue
 
         # 处理 Mermaid 代码块
         if line.startswith('```mermaid'):
@@ -378,10 +636,10 @@ def convert_md_to_word(md_file, cover_data=None, facts=None):
                 i += 1
             continue
 
-        # 处理表格
-        if line.startswith('|'):
+        # 处理表格，兼容有/无首尾竖线的 Markdown 表格
+        if is_markdown_table_start(lines, i):
             table_lines = []
-            while i < len(lines) and lines[i].strip().startswith('|'):
+            while i < len(lines) and (parse_table_row(lines[i]) or is_table_divider(lines[i])):
                 table_lines.append(lines[i])
                 i += 1
             process_table('\n'.join(table_lines), doc)
@@ -391,6 +649,10 @@ def convert_md_to_word(md_file, cover_data=None, facts=None):
         if line.startswith('#'):
             level = len(re.match(r'^#+', line).group())
             text = clean_markdown_text(line.lstrip('#').strip())
+            chapter_no = extract_chapter_number(text)
+            if chapter_no:
+                current_chapter_no = chapter_no
+                current_chapter_image_index = 0
             if level == 1:
                 doc.add_heading(text, level=0)
             else:

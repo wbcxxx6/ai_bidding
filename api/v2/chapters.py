@@ -1,0 +1,347 @@
+import json
+from datetime import datetime
+
+from flask import Blueprint, jsonify, request
+
+from core.db import get_db
+from services.chapter_title import dedupe_by_chapter_title, normalise_chapter_title
+from services.v2.citation_service import list_chapter_citations
+from services.v2.editor_doc_service import get_editor_doc, save_editor_doc
+from services.v2.followup_service import list_chapter_followups
+from services.v2.image_plan_service import list_chapter_image_plans
+from services.v2.workbench_service import get_project_workbench_overview
+from services.model_router import model_router
+
+
+bp = Blueprint("v2_chapters", __name__, url_prefix="/chapters")
+
+
+def now():
+    return datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def dumps(value):
+    return json.dumps(value, ensure_ascii=False) if value is not None else None
+
+
+def loads(value):
+    if not value:
+        return None
+    if isinstance(value, (dict, list)):
+        return value
+    return json.loads(value)
+
+
+def _chapter_description(chapter):
+    parts = [chapter.get("content") or chapter.get("description") or ""]
+    for section in chapter.get("sections") or []:
+        parts.append(section.get("title") or "")
+        for subsection in section.get("subsections") or []:
+            parts.append(subsection.get("title") or "")
+            parts.append(subsection.get("describe") or "")
+    return "\n".join(part for part in parts if part)
+
+
+def _normalise_outline(raw):
+    outline = loads(raw) if isinstance(raw, str) else raw
+    if not outline:
+        return []
+    if isinstance(outline, dict):
+        return outline.get("chapters") or []
+    if isinstance(outline, list):
+        return outline
+    return []
+
+
+def _outline_chapters_for_project(project):
+    return dedupe_by_chapter_title(
+        _normalise_outline(project.get("directory_structure")),
+        get_title=lambda chapter: chapter.get("title") if isinstance(chapter, dict) else "",
+        score_item=lambda chapter: len(chapter.get("sourceText") or "") if isinstance(chapter, dict) else 0,
+    )
+
+
+def _chapter_titles(chapters):
+    return [
+        normalise_chapter_title(chapter.get("title") or chapter.get("chapter_title"))
+        for chapter in chapters or []
+        if normalise_chapter_title(chapter.get("title") or chapter.get("chapter_title"))
+    ]
+
+
+def _can_supersede_chapter_document(conn, rows):
+    if not rows:
+        return True
+    if any(row.get("current_version_id") or row.get("status") in {"generated", "ready"} for row in rows):
+        return False
+    chapter_ids = [row["id"] for row in rows if row.get("id")]
+    if not chapter_ids:
+        return True
+    placeholders = ", ".join(["?"] * len(chapter_ids))
+    protected = conn.execute(
+        f"""
+        SELECT
+          (
+            (SELECT COUNT(*) FROM chapter_editor_docs WHERE chapter_id IN ({placeholders}))
+            + (SELECT COUNT(*) FROM citation_record WHERE chapter_id IN ({placeholders}))
+            + (SELECT COUNT(*) FROM image_plan WHERE chapter_id IN ({placeholders}))
+            + (SELECT COUNT(*) FROM followup_question WHERE chapter_id IN ({placeholders}))
+            + (SELECT COUNT(*) FROM agent_task WHERE chapter_id IN ({placeholders}))
+          ) AS protected_count
+        """,
+        tuple(chapter_ids * 5),
+    ).fetchone()
+    return int((protected or {}).get("protected_count") or 0) == 0
+
+
+def _insert_project_chapters(conn, project, chapters):
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT INTO bid_documents
+        (tenant_id, project_id, document_title, status, created_by, created_at, updated_at)
+        VALUES (1, ?, ?, 'draft', NULL, ?, ?)
+        """,
+        (project["id"], f"{project.get('project_name') or '投标文件'} - V2 工作台", now(), now()),
+    )
+    bid_document_id = cursor.lastrowid
+    for index, chapter in enumerate(chapters):
+        cursor.execute(
+            """
+            INSERT INTO bid_chapters
+            (tenant_id, bid_document_id, project_id, chapter_title, chapter_type, sort_order,
+             outline_json, status, created_at, updated_at)
+            VALUES (1, ?, ?, ?, ?, ?, ?, 'planned', ?, ?)
+            """,
+            (
+                bid_document_id,
+                project["id"],
+                chapter.get("title") or f"章节 {index + 1}",
+                chapter.get("type") or "normal",
+                index,
+                dumps({**chapter, "description": _chapter_description(chapter)}),
+                now(),
+                now(),
+            ),
+        )
+
+
+def _materialize_project_chapters(project_id):
+    conn = get_db()
+    try:
+        project = conn.execute("SELECT * FROM bid_projects WHERE id=?", (project_id,)).fetchone()
+        if not project:
+            raise ValueError(f"Project not found: {project_id}")
+        chapters = _outline_chapters_for_project(project)
+        if not chapters:
+            return
+        latest_doc = conn.execute(
+            """
+            SELECT id
+            FROM bid_documents
+            WHERE project_id=? AND deleted_at IS NULL
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (project_id,),
+        ).fetchone()
+        rows = []
+        if latest_doc:
+            rows = conn.execute(
+                """
+                SELECT * FROM bid_chapters
+                WHERE project_id=? AND bid_document_id=?
+                ORDER BY sort_order ASC, id ASC
+                """,
+                (project_id, latest_doc["id"]),
+            ).fetchall()
+            if _chapter_titles(rows) == _chapter_titles(chapters):
+                return
+            if rows and not _can_supersede_chapter_document(conn, rows):
+                return
+        _insert_project_chapters(conn, project, chapters)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _latest_bid_document_id(conn, project_id):
+    row = conn.execute(
+        """
+        SELECT id
+        FROM bid_documents
+        WHERE project_id=? AND deleted_at IS NULL
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (project_id,),
+    ).fetchone()
+    return (row or {}).get("id")
+
+
+def _chapter_score(chapter):
+    return (
+        (1000 if chapter.get("currentVersionId") else 0)
+        + (100 if chapter.get("status") in {"generated", "ready"} else 0)
+        + int(chapter.get("id") or 0)
+    )
+
+
+def _format_chapter(row):
+    outline = loads(row.get("outline_json")) or {}
+    return {
+        "id": row["id"],
+        "projectId": row.get("project_id"),
+        "bidDocumentId": row.get("bid_document_id"),
+        "parentChapterId": row.get("parent_chapter_id"),
+        "title": row.get("chapter_title"),
+        "type": row.get("chapter_type"),
+        "sortOrder": row.get("sort_order"),
+        "status": row.get("status"),
+        "currentVersionId": row.get("current_version_id"),
+        "outline": outline,
+        "description": outline.get("description") or _chapter_description(outline),
+    }
+
+
+@bp.route("", methods=["GET"])
+def list_chapters():
+    project_id = request.args.get("projectId") or request.args.get("project_id")
+    if not project_id:
+        return jsonify({"error": "projectId is required."}), 400
+    try:
+        _materialize_project_chapters(int(project_id))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 404
+    conn = get_db()
+    try:
+        bid_document_id = _latest_bid_document_id(conn, int(project_id))
+        if not bid_document_id:
+            return jsonify({"items": []})
+        rows = conn.execute(
+            """
+            SELECT * FROM bid_chapters
+            WHERE project_id=? AND bid_document_id=?
+            ORDER BY sort_order ASC, id ASC
+            """,
+            (int(project_id), bid_document_id),
+        ).fetchall()
+        items = dedupe_by_chapter_title(
+            [_format_chapter(row) for row in rows],
+            get_title=lambda chapter: chapter.get("title"),
+            score_item=_chapter_score,
+        )
+        return jsonify({"items": items})
+    finally:
+        conn.close()
+
+
+@bp.route("/workbench", methods=["GET"])
+def workbench_overview():
+    project_id = request.args.get("projectId") or request.args.get("project_id")
+    if not project_id:
+        return jsonify({"error": "projectId is required."}), 400
+    try:
+        _materialize_project_chapters(int(project_id))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 404
+    return jsonify(get_project_workbench_overview(int(project_id)))
+
+
+@bp.route("/<int:chapter_id>/editor-doc", methods=["GET"])
+def read_editor_doc(chapter_id):
+    return jsonify(get_editor_doc(chapter_id))
+
+
+@bp.route("/<int:chapter_id>/editor-doc", methods=["PUT"])
+def write_editor_doc(chapter_id):
+    data = request.get_json(silent=True) or {}
+    markdown = data.get("markdown")
+    if markdown is None:
+        return jsonify({"error": "markdown is required."}), 400
+    saved = save_editor_doc(
+        chapter_id=chapter_id,
+        markdown=markdown,
+        tiptap_json=data.get("tiptapJson") or data.get("tiptap_json"),
+        created_by=data.get("userId") or data.get("user_id"),
+        sync_chapter_version=True,
+    )
+    return jsonify(saved)
+
+
+@bp.route("/<int:chapter_id>/citations", methods=["GET"])
+def chapter_citations(chapter_id):
+    return jsonify({"items": list_chapter_citations(chapter_id)})
+
+
+@bp.route("/<int:chapter_id>/image-plans", methods=["GET"])
+def chapter_image_plans(chapter_id):
+    return jsonify({"items": list_chapter_image_plans(chapter_id)})
+
+
+@bp.route("/<int:chapter_id>/followups", methods=["GET"])
+def chapter_followups(chapter_id):
+    return jsonify({"items": list_chapter_followups(chapter_id)})
+
+
+@bp.route("/<int:chapter_id>/selection-rewrite", methods=["POST"])
+def selection_rewrite(chapter_id):
+    data = request.get_json(silent=True) or {}
+    selected_text = (data.get("selectedText") or data.get("selected_text") or "").strip()
+    instruction = (data.get("instruction") or "").strip()
+    context_before = (data.get("contextBefore") or data.get("context_before") or "").strip()
+    context_after = (data.get("contextAfter") or data.get("context_after") or "").strip()
+    if not selected_text:
+        return jsonify({"error": "selectedText is required."}), 400
+    if not instruction:
+        return jsonify({"error": "instruction is required."}), 400
+
+    conn = get_db()
+    try:
+        chapter = conn.execute("SELECT * FROM bid_chapters WHERE id=?", (chapter_id,)).fetchone()
+    finally:
+        conn.close()
+    if not chapter:
+        return jsonify({"error": "Chapter not found."}), 404
+
+    prompt = f"""你是投标文件选区改写助手。请按用户指令只改写选中文本，不要改写选区之外的内容。
+
+【章节】
+{chapter.get('chapter_title') or ''}
+
+【选中文本前后文】
+前文：
+{context_before[-600:] or '（无）'}
+
+后文：
+{context_after[:600] or '（无）'}
+
+【选中文本】
+{selected_text}
+
+【用户指令】
+{instruction}
+
+【要求】
+- 只输出替换后的新文本，不要输出解释。
+- 保持专业投标文件语气，与上下文衔接自然。
+- 不得编造企业资质、证书编号、人员、金额、日期、产品参数和项目案例。
+- 如果用户要求补充但资料不足，可以写“待补充”。
+"""
+    try:
+        response = model_router.chat(
+            [{"role": "user", "content": prompt}],
+            task_type="generate_chapter",
+            project_id=chapter.get("project_id"),
+            timeout=60,
+        )
+        choices = response.get("output", {}).get("choices") or response.get("choices") or []
+        new_text = (choices[0].get("message", {}).get("content") if choices else "") or ""
+        return jsonify({
+            "chapterId": chapter_id,
+            "rewriteScope": "selection",
+            "originalText": selected_text,
+            "newText": new_text.strip(),
+        })
+    except Exception as exc:
+        return jsonify({"error": f"Selection rewrite failed: {str(exc)}"}), 500

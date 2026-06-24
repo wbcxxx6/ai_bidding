@@ -1,203 +1,214 @@
 # AI 招投标文档生成系统
 
-面向企业投标场景的 AI 文档生成系统。项目支持招标文件上传与解析、企业知识库入库、历史投标文件 RAG 检索、多模型提供商配置、投标书章节生成、Word 导出和 OnlyOffice 在线编辑。
+AI 招投标文档生成系统面向企业投标场景，围绕“招标文件解析、项目资料沉淀、章节生成、AI 改写、在线编辑、Word 导出”形成一条完整工作流。系统支持企业知识库和历史标书检索，生成内容时可结合当前项目资料、企业资料和投标经验，帮助团队更快完成投标文件初稿与后续修订。
 
-当前项目处于原型向企业级架构演进阶段，后端已接入 MySQL 作为业务数据底座，并保留 ChromaDB/Milvus 向量存储适配。
+> 下方产品截图中的项目名称、招标文件名称和客户信息均已脱敏。
 
-## 功能特性
+## 产品截图
 
-- 招标文件上传：支持 Word、PDF、文本文件上传与解析。
-- 企业知识库：支持上传历史投标文件、企业资料、项目资料，并写入向量库。
-- RAG 检索：生成章节时结合当前项目资料和企业历史标书内容。
-- 多模型配置：支持 DeepSeek、通义千问、火山方舟、Moonshot/Kimi、OpenAI、小米 MiMo 等 OpenAI 兼容接口。
-- MySQL 数据底座：保存项目、文件元数据、知识库、切片、任务、生成标书等业务数据。
-- 向量库适配：默认 ChromaDB，本地开发友好；可通过配置切换到 Milvus。
-- Word 导出：将 Markdown 内容转换为 `.docx`。
-- OnlyOffice 集成：返回 `editorConfig`，支持在线预览和编辑。
-- 前端工作台：提供基础项目工作台、知识库、模型配置和生成流程页面。
+### 项目中心
+
+![项目中心](docs/assets/project-center.svg)
+
+### AI 工作台
+
+![AI 工作台](docs/assets/ai-workbench.svg)
+
+### 管理后台
+
+![管理后台](docs/assets/admin-dashboard.svg)
+
+## 核心功能
+
+| 模块 | 能力 |
+| --- | --- |
+| 项目中心 | 创建投标项目、上传招标文件、查看项目进度、恢复上次生成状态 |
+| 招标文件解析 | 支持 Word、PDF、文本文件上传，提取项目信息、评分点、章节结构和关键要求 |
+| 生成流程 | 按“上传文件、文件解析、章节规划、生成投标文件”推进，已完成步骤可回看和修改 |
+| AI 工作台 | 三栏式章节编辑、章节导航、项目总览、待办提醒、正文编辑和章节级重写 |
+| 选区改写 | 在正文中选中一段内容后，可直接针对选区发起 AI 改写，不必重写整章 |
+| 企业知识库 | 上传企业资料、历史标书、项目材料，解析后写入向量库用于 RAG 检索 |
+| 多模型配置 | 支持 DeepSeek、通义千问、火山方舟、Moonshot/Kimi、OpenAI、小米 MiMo 等 OpenAI 兼容接口 |
+| Word 导出 | 将生成内容导出为 `.docx`，并支持接入 OnlyOffice 在线预览与编辑 |
+| 管理后台 | 管理模型配置、知识库资料、项目文件和系统基础数据 |
 
 ## 技术栈
 
-| 模块 | 技术 |
+| 层级 | 技术 |
 | --- | --- |
-| 后端框架 | Flask |
-| 业务数据库 | MySQL 8.x + PyMySQL |
-| 向量数据库 | ChromaDB / Milvus |
-| 大模型接口 | OpenAI-compatible Chat Completions |
-| Embedding | OpenAI-compatible Embeddings，默认 DashScope `text-embedding-v3` |
+| 前端 | Vue 3、Vite、Element Plus、Pinia、Vue Router、Tiptap |
+| 后端 | Flask、Flask-CORS、PyMySQL |
+| 数据库 | MySQL 8.x |
+| RAG 检索 | PostgreSQL + PGVector + FTS + Rerank，ChromaDB/Milvus 作为开发降级 |
 | 文档解析 | Mammoth、PyPDF2 |
-| Word 导出 | python-docx、Markdown |
-| 在线编辑 | OnlyOffice Document Server |
-| 前端 | 原生 HTML/CSS/JavaScript |
+| 文档导出 | python-docx、Markdown |
+| 在线编辑 | OnlyOffice Document Server，可选 |
+| 模型接口 | OpenAI-compatible Chat Completions / Embeddings |
 
 ## 项目结构
 
 ```text
 ai_bidding/
 ├── api/                  # Flask 蓝图与 HTTP 接口
-│   ├── bidding.py        # 招标文件上传、分析、生成、导出
-│   ├── knowledge.py      # 知识库、企业文档入库、RAG 检索
-│   ├── settings.py       # 模型提供商设置
-│   └── users.py          # 用户识别
-├── core/                 # 核心基础设施
-│   ├── db.py             # MySQL 连接、兼容封装、表结构初始化
-│   └── llm_providers.py  # 模型提供商定义与配置读写
-├── services/             # 业务服务
-│   ├── ingestion_service.py
-│   ├── qwen_client.py
-│   └── file_to_chroma.py
-├── storage/              # 存储适配
-│   └── vector_store.py
+│   ├── bidding.py        # 招标文件上传、解析、生成、导出
+│   ├── files.py          # 项目文件接口
+│   ├── generation.py     # 生成任务接口
+│   ├── knowledge.py      # 知识库与 RAG 检索
+│   ├── settings.py       # 模型配置
+│   └── v2/               # V2 项目、章节、工作台接口
+├── core/                 # 数据库、模型提供商等基础设施
+├── services/             # 文档入库、模型调用、文件处理服务
+├── storage/              # 向量库适配
 ├── export/               # Word 导出能力
-│   └── md_to_word.py
-├── frontend/             # 前端页面
-├── docs/                 # 设计文档
-├── legacy/               # 历史代码备份
+├── front/                # Vue 前端应用
+├── docs/                 # 产品与架构文档
+├── scripts/              # 维护脚本
+├── tests/                # 自动化测试
 ├── main.py               # Flask 应用入口
-├── requirements.txt
-├── .env.example          # 环境变量模板，可提交
-└── .gitignore
+├── requirements.txt      # Python 依赖
+└── .env.example          # 环境变量模板
 ```
 
-## 环境要求
-
-- Python 3.9+
-- MySQL 8.x
-- Docker，可选，用于运行 OnlyOffice、MySQL、Milvus
-- 至少一个大模型 API Key
-- Embedding API Key，如果启用知识库向量化
-
-## 快速开始
+## 本地开发部署
 
 ### 1. 克隆项目
 
 ```bash
-git clone https://github.com/your-org/ai_bidding.git
-cd ai_bidding/ai_bidding
+git clone https://github.com/NewbieCoderLab/ai_bidding.git
+cd ai_bidding
 ```
 
-### 2. 创建虚拟环境
+### 2. 准备 Python 环境
 
 ```bash
-python -m venv .venv
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 ```
 
 Windows PowerShell：
 
 ```powershell
+python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-```
-
-macOS / Linux：
-
-```bash
-source .venv/bin/activate
-```
-
-安装依赖：
-
-```bash
 pip install -r requirements.txt
 ```
 
 ### 3. 配置环境变量
 
-复制模板：
-
 ```bash
 cp .env.example .env
 ```
 
-Windows PowerShell：
+编辑 `.env`，填写 MySQL、模型 API Key、Embedding 和可选的 OnlyOffice 配置。不要将 `.env` 提交到仓库。
 
-```powershell
-Copy-Item .env.example .env
-```
-
-然后编辑 `.env`，填入你自己的数据库、模型和向量库配置。不要把 `.env` 提交到 GitHub。
-
-### 4. 准备 MySQL
-
-创建数据库用户和权限，或使用已有 MySQL。应用启动时会根据 `core/db.py` 中的 schema 初始化所需表。
-
-示例配置见 `.env.example`：
+常用配置项：
 
 ```ini
+PORT=3012
+
 MYSQL_HOST=127.0.0.1
 MYSQL_PORT=3306
 MYSQL_USER=your_mysql_user
 MYSQL_PASSWORD=your_mysql_password
 MYSQL_DATABASE=bidding
-MYSQL_CHARSET=utf8mb4
-```
 
-### 5. 启动应用
+VECTOR_STORE=chroma
+VECTOR_COLLECTION=document_embeddings
 
-```bash
-python main.py
-```
-
-默认访问地址：
-
-```text
-http://localhost:3012
-```
-
-## 模型与 Embedding 配置
-
-### 聊天模型
-
-启动后可以在前端“模型设置”中配置模型提供商和 API Key。当前支持：
-
-| 提供商 | Base URL |
-| --- | --- |
-| DeepSeek | `https://api.deepseek.com/v1` |
-| 通义千问 | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
-| 火山方舟 | `https://ark.cn-beijing.volces.com/api/v3` |
-| 小米 MiMo | `https://token-plan-cn.xiaomimimo.com/v1` |
-| OpenAI | `https://api.openai.com/v1` |
-| Moonshot/Kimi | `https://api.moonshot.cn/v1` |
-
-### Embedding
-
-Milvus/ChromaDB 只负责存储向量，不负责生成向量。真正需要 API Key 的是 Embedding 模型。
-
-默认配置使用 DashScope OpenAI 兼容 Embeddings：
-
-```ini
 EMBEDDING_API_KEY=your_embedding_api_key
 EMBEDDING_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 EMBEDDING_MODEL=text-embedding-v3
 EMBEDDING_DIM=1024
 ```
 
-如果没有单独设置 `EMBEDDING_API_KEY`，代码会回退读取 `DASHSCOPE_API_KEY`。
+### 4. 准备 MySQL
 
-## 向量库配置
+创建数据库：
 
-本地开发默认使用 ChromaDB：
-
-```ini
-VECTOR_STORE=chroma
-VECTOR_COLLECTION=document_embeddings
+```sql
+CREATE DATABASE bidding DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 ```
 
-使用 Milvus：
+确认 `.env` 中的账号具备该数据库的读写权限。后端启动时会执行 `core/db.py` 中的表结构初始化逻辑。
 
-```ini
-VECTOR_STORE=milvus
-MILVUS_HOST=127.0.0.1
-MILVUS_PORT=19530
-MILVUS_METRIC_TYPE=COSINE
-MILVUS_INDEX_TYPE=AUTOINDEX
-VECTOR_COLLECTION=document_embeddings
+### 5. 准备 PostgreSQL RAG
+
+RAG 主路径使用 PostgreSQL + PGVector + Full Text Search。创建数据库并执行迁移：
+
+```bash
+psql "$POSTGRES_DSN" -f migrations/postgres/001_rag_pgvector.sql
 ```
 
-如果 Milvus 连接失败，当前代码会回退到 ChromaDB，便于开发调试。
+`.env` 至少需要配置：
 
-## OnlyOffice，可选
+```ini
+POSTGRES_DSN=postgresql://postgres:password@127.0.0.1:5432/ai_bidding
+EMBEDDING_API_KEY=your_embedding_api_key
+EMBEDDING_MODEL=text-embedding-v3
+EMBEDDING_DIM=1024
+```
 
-如需在线预览和编辑生成的 Word 文件，可以启动 OnlyOffice Document Server：
+如果未配置 PostgreSQL，系统会退回 MySQL 文本检索降级路径；上传入库仍保留 Chroma/Milvus 兼容写入，便于迁移期回滚。
+
+### 6. 启动后端
+
+```bash
+python main.py
+```
+
+默认地址：
+
+```text
+http://localhost:3012
+```
+
+### 7. 启动前端
+
+```bash
+cd front
+npm install
+npm run dev
+```
+
+默认地址：
+
+```text
+http://localhost:5173
+```
+
+开发环境下，Vite 会将 `/api` 请求代理到 Flask 后端。
+
+## 生产构建部署
+
+### 1. 构建前端
+
+```bash
+cd front
+npm install
+npm run build
+```
+
+构建产物会生成到 `front/dist/`。
+
+### 2. 启动 Flask 托管 SPA
+
+回到项目根目录：
+
+```bash
+python main.py
+```
+
+当 `front/dist/` 存在时，Flask 会托管前端构建产物：
+
+```text
+http://localhost:3012/
+http://localhost:3012/admin
+```
+
+### 3. 可选：启动 OnlyOffice
+
+如果需要在线预览和编辑 Word 文件，可启动 OnlyOffice Document Server：
 
 ```bash
 docker run -d \
@@ -208,48 +219,78 @@ docker run -d \
   onlyoffice/documentserver
 ```
 
-`.env` 中的 `ONLYOFFICE_JWT_SECRET` 需要与容器中的 `JWT_SECRET` 保持一致。
+`.env` 中的 `ONLYOFFICE_JWT_SECRET` 需要与容器 `JWT_SECRET` 保持一致。
+前端默认从 `http://localhost` 加载 OnlyOffice 插件脚本；如果你把容器映射到其他端口，例如 `-p 8081:80`，请在前端环境变量中设置：
+
+```ini
+VITE_ONLYOFFICE_URL=http://localhost:8081
+```
+
+### 4. 可选：旧向量库降级
+
+PostgreSQL + PGVector 是当前 RAG 主路径。ChromaDB/Milvus 仅作为开发和迁移期降级。如果要使用 Milvus 兼容写入：
+
+```ini
+VECTOR_STORE=milvus
+MILVUS_HOST=127.0.0.1
+MILVUS_PORT=19530
+MILVUS_METRIC_TYPE=COSINE
+MILVUS_INDEX_TYPE=AUTOINDEX
+VECTOR_COLLECTION=document_embeddings
+```
+
+如果 Milvus 不可用，兼容写入会回退到 ChromaDB，便于开发调试。
 
 ## 主要接口
 
 | 模块 | 前缀 | 说明 |
 | --- | --- | --- |
-| 招投标文档 | `/api/bidding` | 上传招标文件、预分析、章节设计、生成投标书 |
+| 招投标流程 | `/api/bidding` | 招标文件上传、解析、生成、导出 |
+| 项目文件 | `/api/files`、`/api` | 项目文件、知识库文件、预览下载 |
+| 生成任务 | `/api/generation` | 生成记录与任务状态 |
 | 用户 | `/api/users` | 轻量用户识别 |
-| 模型设置 | `/api/settings` | 模型提供商列表、模型配置、模型连接测试 |
-| 知识库 | `/api` | 知识库管理、文档入库、RAG 检索 |
-| 前端 | `/` | 工作台页面 |
+| 模型设置 | `/api/settings` | 模型提供商、API Key、连接测试 |
+| V2 工作台 | `/api/v2` | 项目、章节、章节内容、选区改写 |
+| 前端应用 | `/` | 用户端 |
+| 管理后台 | `/admin` | 管理端 |
 
-## 当前存储说明
+## 常用工作流
 
-当前项目已经使用 MySQL 保存文件元数据、项目、知识库、文档切片和生成记录，但真实文件仍保存到本地目录：
+1. 在项目中心创建项目并上传招标文件。
+2. 系统解析招标文件，提取项目概况、评分要求、章节目录和关键约束。
+3. 确认或调整章节结构，进入投标文件生成。
+4. 在 AI 工作台查看项目总览、章节列表、正文和待办事项。
+5. 对整章或选中的段落进行 AI 改写，必要时返回上一步修改信息。
+6. 导出 Word 文件，或通过 OnlyOffice 在线编辑。
 
-- `uploads/`：用户上传的招标文件、企业知识库文件、项目资料。
-- `outputs/`：生成的章节、Markdown、Word 文件。
-- `chroma_db/`：本地 ChromaDB 向量库数据。
+## 数据与安全
 
-这些目录已被 `.gitignore` 忽略，不应提交到 GitHub。生产环境建议后续迁移到 MinIO/OSS/S3。
+- `.env`、API Key、数据库密码、JWT Secret 不应提交到 Git。
+- 上传的招标文件、历史投标文件、企业资料和生成结果默认存储在本地目录，应按部署环境做好访问控制和备份策略。
+- `uploads/`、`outputs/`、`chroma_db/` 等运行时目录已被 `.gitignore` 忽略。
+- 对外展示截图或演示数据前，应先脱敏项目名称、招标文件名称、客户名称、联系人、金额、地址等信息。
 
-## 安全注意事项
+## 开发校验
 
-- 不要提交 `.env`、API Key、数据库密码、JWT Secret。
-- 不要提交上传的招标文件、历史投标文件、企业资质、生成的 Word。
-- 不要提交本地数据库、向量库、日志、缓存和虚拟环境。
-- 上传 GitHub 前建议执行：
+后端语法检查：
+
+```bash
+python3 -m py_compile api/bidding.py api/v2/chapters.py
+```
+
+前端构建：
+
+```bash
+cd front
+npm run build
+```
+
+提交前建议检查：
 
 ```bash
 git status --short
+git diff --stat
 ```
-
-
-
-## 开发说明
-
-- `core/db.py` 会在应用启动时初始化 MySQL 表结构。
-- `storage/vector_store.py` 根据 `VECTOR_STORE` 选择 ChromaDB 或 Milvus。
-- `services/ingestion_service.py` 负责文档解析、切片、向量化和切片元数据入库。
-- `services/qwen_client.py` 通过模型配置调用 OpenAI 兼容 Chat Completions。
-- `export/md_to_word.py` 将 Markdown 转换为 Word。
 
 ## 许可证
 

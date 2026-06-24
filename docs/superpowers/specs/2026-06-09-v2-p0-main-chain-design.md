@@ -124,7 +124,7 @@ SSE 事件类型：
 
 ## 前端
 
-新增 Vue 页面 `web/src/user/views/TiptapWorkbench.vue`，路由为 `/project/:id/workbench`。
+新增 Vue 页面 `front/src/user/views/TiptapWorkbench.vue`，路由为 `/project/:id/workbench`。
 
 P0 页面包含：
 
